@@ -78,7 +78,8 @@ function render() {
       card = createCardElement(app)
       renderedCards.set(app.packageName, card)
       list.appendChild(card)
-      requestAnimationFrame(() => card.classList.add('enter-done'))
+      const el = card
+      requestAnimationFrame(() => el.classList.add('enter-done'))
     } else {
       updateCardElement(card, app)
     }
