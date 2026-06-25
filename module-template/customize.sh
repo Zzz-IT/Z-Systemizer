@@ -4,10 +4,9 @@ MODDIR="${MODPATH:-${0%/*}}"
 ABI="${ARCH:-$(getprop ro.product.cpu.abi)}"
 
 ui_print "- Z Systemizer module"
-ui_print "- Preparing module layout"
+ui_print "- Preparing system/app-only layout"
 
 mkdir -p "$MODDIR/system/app"
-mkdir -p "$MODDIR/system/priv-app"
 mkdir -p "$MODDIR/bin"
 mkdir -p "$MODDIR/state"
 
@@ -32,4 +31,5 @@ set_perm_recursive "$MODDIR/system" 0 0 0755 0644
 set_perm "$MODDIR/bin/systemizer" 0 0 0755
 
 ui_print "- Installed CLI for $SYSTEMIZER_ABI"
+ui_print "- Only system/app is supported"
 ui_print "- Reboot is required after systemizing apps"
