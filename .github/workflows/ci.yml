@@ -53,9 +53,8 @@ jobs:
       - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses || true
-          echo "Available Android platforms:"
-          sdkmanager --list --channel=3 | grep -E "platforms;android-(35|36|37)" || true
-          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0"
+          sdkmanager --list | grep -E "platforms;android-(36|37|37.0)" || true
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
