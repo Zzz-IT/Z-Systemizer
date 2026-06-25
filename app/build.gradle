@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace 'dev.zzz.systemizer'
-    compileSdk 37
+    compileSdk 36
 
     defaultConfig {
         applicationId "dev.zzz.systemizer"
