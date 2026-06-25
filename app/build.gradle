@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 android {
@@ -15,6 +16,14 @@ android {
         versionName "0.1"
     }
 
+    buildFeatures {
+        compose true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion '1.5.14'
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -23,5 +32,13 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.activity:activity-compose:1.9.0'
+    implementation 'androidx.compose.ui:ui:1.6.8'
+    implementation 'androidx.compose.material3:material3:1.2.1'
+
+    implementation 'top.yukonga.miuix.kmp:miuix-ui-android:0.9.2'
+    implementation 'top.yukonga.miuix.kmp:miuix-icons-android:0.9.2'
+    implementation 'top.yukonga.miuix.kmp:miuix-preference-android:0.9.2'
+
     implementation 'androidx.appcompat:appcompat:1.6.1'
 }
