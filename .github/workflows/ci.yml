@@ -39,21 +39,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify WebUI files
-        run: |
-          test -f module-template/webroot/index.html
-          test -f module-template/webroot/app.js
-          test -f module-template/webroot/style.css
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
 
-      - name: Ensure WebUI is offline
+      - name: Build WebUI
         run: |
-          if grep -R "http://" module-template/webroot; then
-            echo "WebUI must not load remote insecure resources"
-            exit 1
-          fi
+          cd webui
+          npm ci
+          npm run build
 
-          if grep -R "https://" module-template/webroot; then
-            echo "WebUI should be fully offline"
+      - name: Verify WebUI output
+        run: |
+          test -f webui/dist/index.html
+          if grep -R "https://" webui/dist; then
+            echo "WebUI should not depend on remote assets"
             exit 1
           fi
 
@@ -63,3 +66,4 @@ jobs:
             echo "APK files must not be committed"
             exit 1
           fi
+

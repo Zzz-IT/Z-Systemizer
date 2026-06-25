@@ -45,6 +45,19 @@ jobs:
           cd cli
           cargo ndk -t arm64-v8a build --release
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Build WebUI
+        run: |
+          cd webui
+          npm ci
+          npm run build
+
       - name: Assemble module
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
@@ -55,6 +68,10 @@ jobs:
           mkdir -p module-template/system/app
           mkdir -p module-template/state
           mkdir -p module-template/checksums
+          
+          rm -rf module-template/webroot
+          mkdir -p module-template/webroot
+          cp -r webui/dist/* module-template/webroot/
 
           cp cli/target/aarch64-linux-android/release/systemizer \
             module-template/bin/arm64-v8a/systemizer
@@ -64,15 +81,11 @@ jobs:
           test -f module-template/module.prop
           test -f module-template/customize.sh
           test -f module-template/webroot/index.html
-          test -f module-template/webroot/app.js
-          test -f module-template/webroot/style.css
 
           (
             cd module-template
             sha256sum bin/arm64-v8a/systemizer > checksums/SHA256SUMS
-            sha256sum webroot/index.html >> checksums/SHA256SUMS
-            sha256sum webroot/app.js >> checksums/SHA256SUMS
-            sha256sum webroot/style.css >> checksums/SHA256SUMS
+            find webroot -type f -exec sha256sum {} \; >> checksums/SHA256SUMS
             zip -r "../out/Z-Systemizer-${VERSION}.zip" .
           )
 
@@ -87,8 +100,6 @@ jobs:
           unzip -l "$ZIP" | grep 'customize.sh'
           unzip -l "$ZIP" | grep 'bin/arm64-v8a/systemizer'
           unzip -l "$ZIP" | grep 'webroot/index.html'
-          unzip -l "$ZIP" | grep 'webroot/app.js'
-          unzip -l "$ZIP" | grep 'webroot/style.css'
 
           if unzip -l "$ZIP" | grep -q 'system/priv-app'; then
             echo 'priv-app path must not be packaged'
@@ -97,6 +108,11 @@ jobs:
 
           if unzip -l "$ZIP" | grep -q '.apk'; then
             echo 'APK must not be packaged in WebUI release'
+            exit 1
+          fi
+          
+          if unzip -l "$ZIP" | grep -q 'node_modules'; then
+            echo 'node_modules must not be packaged'
             exit 1
           fi
 

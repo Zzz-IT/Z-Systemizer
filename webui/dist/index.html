@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+  <title>Z Systemizer</title>
+  <script type="module" crossorigin src="/assets/index-CNgbvWYJ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-EWK9kyiJ.css">
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <div>
+        <h1>Z Systemizer</h1>
+        <p class="status-line">正在加载...</p>
+      </div>
+
+      <div class="header-actions">
+        <button class="icon-button refresh-button">刷新</button>
+        <button class="icon-button diagnose-button">诊断</button>
+      </div>
+    </header>
+
+    <section class="summary-card">
+      <div>
+        <strong class="summary-systemized">0</strong>
+        <span>已系统化</span>
+      </div>
+      <div>
+        <strong class="summary-pending">0</strong>
+        <span>待重启</span>
+      </div>
+      <div>
+        <strong>app</strong>
+        <span>system/app</span>
+      </div>
+    </section>
+
+    <section class="search-card">
+      <input class="search-input" placeholder="搜索应用名称或包名" />
+    </section>
+
+    <section class="app-list"></section>
+  </main>
+
+  <button class="reboot-fab">重启</button>
+
+</body>
+</html>
