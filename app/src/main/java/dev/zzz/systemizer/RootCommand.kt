@@ -7,32 +7,32 @@ object RootCommand {
 
     data class Result(
         val exitCode: Int,
-        val stdout: String,
-        val stderr: String,
+        val output: String,
     ) {
         val ok: Boolean get() = exitCode == 0
         fun display(): String {
-            val body = listOf(stdout, stderr).filter { it.isNotBlank() }.joinToString("\n")
-            return if (ok) body.ifBlank { "OK" } else "ERROR($exitCode): $body"
+            return if (ok) {
+                output.ifBlank { "OK" }
+            } else {
+                "ERROR($exitCode): ${output.ifBlank { "command failed" }}"
+            }
         }
     }
 
     fun execResult(command: String): Result {
         return try {
-            val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            val proc = ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(true)
+                .start()
 
-            val stdout = BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
-                reader.readLines().joinToString("\n")
-            }
-
-            val stderr = BufferedReader(InputStreamReader(proc.errorStream)).use { reader ->
+            val output = BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
                 reader.readLines().joinToString("\n")
             }
 
             val exit = proc.waitFor()
-            Result(exit, stdout.trim(), stderr.trim())
+            Result(exit, output.trim())
         } catch (e: Exception) {
-            Result(-1, "", e.message ?: e.javaClass.simpleName)
+            Result(-1, e.message ?: e.javaClass.simpleName)
         }
     }
 
