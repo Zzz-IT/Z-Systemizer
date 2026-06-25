@@ -25,6 +25,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 
