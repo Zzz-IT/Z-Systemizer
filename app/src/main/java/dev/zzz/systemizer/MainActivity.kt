@@ -1,48 +1,123 @@
 package dev.zzz.systemizer
 
-import android.app.Activity
 import android.os.Bundle
-import android.widget.*
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-class MainActivity : Activity() {
-
-    private lateinit var listView: ListView
-    private lateinit var adapter: ArrayAdapter<String>
-    private val apps = mutableListOf<String>()
+class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val layout = LinearLayout(this)
-        layout.orientation = LinearLayout.VERTICAL
+        setContent {
 
-        val button = Button(this)
-        button.text = "Refresh Apps"
+            val scope = rememberCoroutineScope()
+            var apps by remember { mutableStateOf(listOf<String>()) }
+            var log by remember { mutableStateOf("Ready") }
 
-        listView = ListView(this)
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, apps)
-        listView.adapter = adapter
+            fun refreshApps() {
+                scope.launch {
+                    log = "Loading..."
+                    val result = withContext(Dispatchers.IO) {
+                        SystemizerClient.listApps()
+                    }
+                    apps = result.lines().filter { it.isNotBlank() }
+                    log = "Loaded ${apps.size} apps"
+                }
+            }
 
-        button.setOnClickListener {
-            loadApps()
+            MiuixTheme {
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text("Z Systemizer") }
+                        )
+                    }
+                ) { padding ->
+
+                    Column(
+                        modifier = Modifier
+                            .padding(padding)
+                            .fillMaxSize()
+                    ) {
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+
+                                Text(text = log)
+
+                                Spacer(Modifier.height(8.dp))
+
+                                TextButton(
+                                    text = "Refresh Apps",
+                                    onClick = { refreshApps() }
+                                )
+
+                            }
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(apps) { pkg ->
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .padding(12.dp)
+                                            .fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(text = pkg)
+
+                                        Row {
+                                            TextButton(
+                                                text = "SYS",
+                                                onClick = {
+                                                    scope.launch {
+                                                        log = SystemizerClient.systemize(pkg, "app")
+                                                    }
+                                                }
+                                            )
+
+                                            Spacer(Modifier.width(8.dp))
+
+                                            TextButton(
+                                                text = "UN",
+                                                onClick = {
+                                                    scope.launch {
+                                                        log = SystemizerClient.unsystemize(pkg)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-
-        layout.addView(button)
-        layout.addView(listView)
-
-        setContentView(layout)
-    }
-
-    private fun loadApps() {
-        apps.clear()
-
-        val pm = packageManager
-        val list = pm.getInstalledApplications(0)
-
-        for (app in list) {
-            apps.add(app.packageName)
-        }
-
-        adapter.notifyDataSetChanged()
     }
 }
