@@ -7,8 +7,8 @@
     content="width=device-width, initial-scale=1, viewport-fit=cover"
   />
   <title>Z Systemizer</title>
-  <script type="module" crossorigin src="/assets/index-CNgbvWYJ.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-EWK9kyiJ.css">
+  <script type="module" crossorigin src="/assets/index-9j6jPr21.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BAcELYif.css">
 </head>
 <body>
   <main class="page">
@@ -20,7 +20,16 @@
 
       <div class="header-actions">
         <button class="icon-button refresh-button">刷新</button>
-        <button class="icon-button diagnose-button">诊断</button>
+        <div class="header-menu-wrap">
+          <button class="icon-button more-button">更多</button>
+          <div class="dropdown-menu">
+            <label class="menu-item">
+              <input type="checkbox" id="toggle-only-sys" /> 仅显示已系统化
+            </label>
+            <button class="menu-item" id="menu-diagnose">诊断信息</button>
+            <button class="menu-item" id="menu-about">关于</button>
+          </div>
+        </div>
       </div>
     </header>
 

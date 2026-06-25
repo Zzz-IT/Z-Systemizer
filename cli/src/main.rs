@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{exit, Command};
+use std::process::{exit, id, Command};
 
 const DEFAULT_MODDIR: &str = "/data/adb/modules/ksu-systemizer";
 const SYSTEM_TARGET: &str = "app";
@@ -92,7 +92,7 @@ fn copy_apks(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     let root = moddir();
     let target_root = root.join("system").join(target);
     let final_dir = target_root.join(&pkg);
-    let tmp_dir = target_root.join(format!(".{}.tmp", pkg));
+    let tmp_dir = target_root.join(format!(".{}.{}.tmp", pkg, id()));
 
     if dry_run {
         println!("dry_run=true");

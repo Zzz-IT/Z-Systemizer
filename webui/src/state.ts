@@ -12,6 +12,7 @@ export interface AppState {
   apps: UiAppEntry[]
   filter: string
   onlySystemized: boolean
+  globalBusy: boolean
 }
 
 export function buildUiApps(

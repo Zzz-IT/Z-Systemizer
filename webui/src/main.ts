@@ -13,6 +13,7 @@ const state = {
   apps: [] as UiAppEntry[],
   filter: '',
   onlySystemized: false,
+  globalBusy: false,
 }
 
 function $(selector: string): HTMLElement {
@@ -54,21 +55,6 @@ function render() {
     })
 
   list.innerHTML = apps.map(app => renderCard(app)).join('')
-
-  list.querySelectorAll<HTMLElement>('.app-card').forEach(card => {
-    const pkg = card.dataset.package!
-    const app = state.apps.find(item => item.packageName === pkg)
-    if (!app) return
-
-    const sw = card.querySelector<HTMLButtonElement>('.switch')!
-    sw.onclick = event => {
-      event.stopPropagation()
-      toggleApp(app)
-    }
-
-    card.onclick = () => toggleApp(app)
-  })
-
   renderSummary()
   renderRebootButton()
 }
@@ -97,6 +83,24 @@ function renderCard(app: UiAppEntry): string {
   `
 }
 
+function updateCardDOM(pkg: string) {
+  const app = state.apps.find(item => item.packageName === pkg)
+  if (!app) return
+  
+  const card = document.querySelector<HTMLElement>(`.app-card[data-package="${escapeHtml(pkg)}"]`)
+  if (!card) return
+  
+  const on = isOn(app)
+  const pending = app.pending !== 'none'
+  
+  card.className = `app-card ${on ? 'is-on' : ''} ${pending ? 'is-pending' : ''}`
+  card.querySelector('.app-status')!.textContent = statusText(app)
+  card.querySelector('.switch')!.className = `switch ${on ? 'is-on' : ''} ${app.busy ? 'is-busy' : ''}`
+  
+  renderSummary()
+  renderRebootButton()
+}
+
 function renderSummary() {
   const systemizedCount = state.apps.filter(app => isOn(app)).length
   const pendingCount = state.apps.filter(app => app.pending !== 'none').length
@@ -111,13 +115,19 @@ function renderRebootButton() {
 }
 
 async function toggleApp(app: UiAppEntry) {
-  if (app.busy) return
+  if (state.globalBusy || app.busy) return
 
   const currentlyOn = isOn(app)
 
   if (currentlyOn) {
+    app.busy = true
+    updateCardDOM(app.packageName)
     const ok = await confirmRemove(app)
-    if (!ok) return
+    if (!ok) {
+      app.busy = false
+      updateCardDOM(app.packageName)
+      return
+    }
     await doUnsystemize(app)
   } else {
     await doSystemize(app)
@@ -126,7 +136,7 @@ async function toggleApp(app: UiAppEntry) {
 
 async function doSystemize(app: UiAppEntry) {
   app.busy = true
-  render()
+  updateCardDOM(app.packageName)
 
   try {
     await systemize(app.packageName)
@@ -137,13 +147,13 @@ async function doSystemize(app: UiAppEntry) {
     toast(errorMessage(e))
   } finally {
     app.busy = false
-    render()
+    updateCardDOM(app.packageName)
   }
 }
 
 async function doUnsystemize(app: UiAppEntry) {
   app.busy = true
-  render()
+  updateCardDOM(app.packageName)
 
   try {
     await unsystemize(app.packageName)
@@ -154,7 +164,7 @@ async function doUnsystemize(app: UiAppEntry) {
     toast(errorMessage(e))
   } finally {
     app.busy = false
-    render()
+    updateCardDOM(app.packageName)
   }
 }
 
@@ -203,6 +213,11 @@ function showConfirm(options: {
   danger?: boolean
 }): Promise<boolean> {
   return new Promise(resolve => {
+    if (document.querySelector('.dialog-backdrop')) {
+      resolve(false)
+      return
+    }
+
     const dialog = document.createElement('div')
     dialog.className = 'dialog-backdrop'
     dialog.innerHTML = `
@@ -245,31 +260,36 @@ async function loadDiagnoseDialog() {
 }
 
 async function refresh() {
+  if (state.globalBusy) return
+  state.globalBusy = true
   $('.status-line').textContent = '正在刷新...'
 
-  const [apps, systemized] = await Promise.all([
-    getApps(),
-    getSystemizedPackages(),
-  ])
+  try {
+    const [apps, systemized] = await Promise.all([
+      getApps(),
+      getSystemizedPackages(),
+    ])
 
-  state.apps = buildUiApps(apps, systemized)
-
-  $('.status-line').textContent = `已加载 ${state.apps.length} 个应用`
-  render()
+    state.apps = buildUiApps(apps, systemized)
+    $('.status-line').textContent = `已加载 ${state.apps.length} 个应用`
+    render()
+  } finally {
+    state.globalBusy = false
+  }
 }
 
 function bindEvents() {
+  let searchTimeout: ReturnType<typeof setTimeout>
   document.querySelector<HTMLInputElement>('.search-input')!.oninput = e => {
-    state.filter = (e.target as HTMLInputElement).value
-    render()
+    clearTimeout(searchTimeout)
+    searchTimeout = setTimeout(() => {
+      state.filter = (e.target as HTMLInputElement).value
+      render()
+    }, 250)
   }
 
   $('.refresh-button').onclick = () => {
     refresh().catch(e => toast(errorMessage(e)))
-  }
-
-  $('.diagnose-button').onclick = () => {
-    loadDiagnoseDialog()
   }
 
   $('.reboot-fab').onclick = async () => {
@@ -281,6 +301,56 @@ function bindEvents() {
     } catch (e) {
       toast(`重启失败：${errorMessage(e)}`)
     }
+  }
+
+  // Event Delegation for App List
+  $('.app-list').onclick = (event) => {
+    const target = event.target as HTMLElement
+    const card = target.closest('.app-card') as HTMLElement
+    if (!card) return
+    
+    const pkg = card.dataset.package
+    if (!pkg) return
+    
+    const app = state.apps.find(item => item.packageName === pkg)
+    if (!app) return
+    
+    toggleApp(app)
+  }
+  
+  // Dropdown Menu Logic
+  const moreButton = $('.more-button')
+  const dropdownMenu = $('.dropdown-menu')
+  
+  moreButton.onclick = (e) => {
+    e.stopPropagation()
+    dropdownMenu.classList.toggle('show')
+  }
+  
+  document.addEventListener('click', (e) => {
+    if (!dropdownMenu.contains(e.target as Node)) {
+      dropdownMenu.classList.remove('show')
+    }
+  })
+  
+  document.getElementById('toggle-only-sys')!.onchange = (e) => {
+    state.onlySystemized = (e.target as HTMLInputElement).checked
+    render()
+  }
+  
+  document.getElementById('menu-diagnose')!.onclick = () => {
+    dropdownMenu.classList.remove('show')
+    loadDiagnoseDialog()
+  }
+  
+  document.getElementById('menu-about')!.onclick = () => {
+    dropdownMenu.classList.remove('show')
+    showConfirm({
+      title: '关于 Z-Systemizer',
+      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.0\n基于 KernelSU API 构建。',
+      cancelText: '关闭',
+      confirmText: '确定'
+    })
   }
 }
 
