@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,viewport-fit=cover"
+  />
+  <title>Z Systemizer</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="hero card">
+      <div>
+        <h1>Z Systemizer</h1>
+        <p id="status">Ready</p>
+      </div>
+      <button id="refreshBtn" class="primary">Refresh</button>
+    </section>
+
+    <section class="card diagnose-card">
+      <div class="section-title">Diagnose</div>
+      <pre id="diagnoseBox">Not loaded</pre>
+    </section>
+
+    <section class="card search-card">
+      <input id="searchInput" placeholder="Search package..." autocomplete="off" />
+    </section>
+
+    <section id="appList" class="list"></section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

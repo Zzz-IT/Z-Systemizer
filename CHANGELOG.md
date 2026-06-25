@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0
+
+### Changed
+- Removed Android APK manager UI
+- Replaced APK UI with KernelSU WebUI
+- Removed AGP/Kotlin/Compose/Miuix build chain
+- Release no longer requires Android SDK or APK signing
+
+### Added
+- WebUI manager under `webroot/`
+- WebUI actions for Refresh, SYS, Unlock, Remove, and Diagnose
+- Offline WebUI assets
+- Release package verification to ensure no APK or priv-app path is included
+
+### Notes
+- Only `system/app` is supported
+- `priv-app` remains intentionally unsupported
+- Reboot is required after systemizing or unsystemizing apps
+
 ## v1.0.1
 
 ### Added
@@ -16,24 +35,24 @@
 ## v1.0.0
 
 ### Features
-- System app 转换工具（system/app-only）
-- 支持用户应用列表获取
-- 支持应用搜索
-- 已处理应用自动置顶
-- system/app 锁保护（Unlock → Remove）
-- Rust CLI 完整控制链路
+- System app conversion tool (system/app-only)
+- User app listing
+- App search
+- Processed app auto-sort
+- system/app lock protection (Unlock → Remove)
+- Rust CLI full control chain
 
 ### Security
-- 禁用 priv-app
-- 不修改 /system 分区
-- 不修改 vendor / ROM 策略
-- 不 hook system_server
-- 不运行常驻服务
+- Disabled priv-app
+- No /system partition modification
+- No vendor / ROM policy modification
+- No system_server hook
+- No resident service
 
 ### Improvements
-- Root 执行 IO 线程隔离
-- CLI 输出结构优化
-- split APK 支持
+- Root execution IO thread isolation
+- CLI output structure optimization
+- Split APK support
 
 ### Build
 - Android + Rust + KSU module unified build pipeline (CI ready)

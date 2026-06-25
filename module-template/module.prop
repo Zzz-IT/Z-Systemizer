@@ -1,6 +1,6 @@
 id=ksu-systemizer
 name=Z Systemizer
-version=v1.0.1
-versionCode=101
+version=v1.1.0
+versionCode=110
 author=Zzz
-description=KernelSU module that embeds Z Systemizer manager APK and system/app systemizer CLI.
+description=KernelSU WebUI module for system/app-only app systemizing.

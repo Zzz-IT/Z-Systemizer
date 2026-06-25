@@ -16,50 +16,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Check formatting
+      - name: Format
         run: cargo fmt --manifest-path cli/Cargo.toml -- --check
 
       - name: Clippy
         run: cargo clippy --manifest-path cli/Cargo.toml -- -D warnings
 
-      - name: Cargo check
+      - name: Check
         run: cargo check --manifest-path cli/Cargo.toml
 
-  android:
-    name: Android App
+  webui:
+    name: WebUI
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK
+      - name: Verify WebUI files
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --list | grep -E "platforms;android-(36|37|37.0)" || true
-          sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+          test -f module-template/webroot/index.html
+          test -f module-template/webroot/app.js
+          test -f module-template/webroot/style.css
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 9.6.0
+      - name: Ensure WebUI is offline
+        run: |
+          if grep -R "http://" module-template/webroot; then
+            echo "WebUI must not load remote insecure resources"
+            exit 1
+          fi
 
-      - name: Build Android app
-        run: gradle :app:assembleDebug --stacktrace
+          if grep -R "https://" module-template/webroot; then
+            echo "WebUI should be fully offline"
+            exit 1
+          fi
+
+      - name: Ensure no APK artifacts
+        run: |
+          if find . -name "*.apk" | grep -q .; then
+            echo "APK files must not be committed"
+            exit 1
+          fi
