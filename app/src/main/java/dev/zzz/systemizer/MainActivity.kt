@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -22,11 +23,32 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-
             val scope = rememberCoroutineScope()
             var apps by remember { mutableStateOf(listOf<String>()) }
             var systemized by remember { mutableStateOf(listOf<String>()) }
+            var query by remember { mutableStateOf("") }
+            var unlockedPkg by remember { mutableStateOf<String?>(null) }
             var log by remember { mutableStateOf("Ready") }
+
+            fun systemizedPackageSet(): Set<String> {
+                return systemized.mapNotNull { line ->
+                    line.split(" ").firstOrNull()?.takeIf { it.isNotBlank() }
+                }.toSet()
+            }
+
+            fun visiblePackages(): List<String> {
+                val locked = systemizedPackageSet()
+                val all = (apps + locked).distinct()
+                val filtered = if (query.isBlank()) {
+                    all
+                } else {
+                    all.filter { it.contains(query, ignoreCase = true) }
+                }
+
+                return filtered.sortedWith(
+                    compareByDescending<String> { it in locked }.thenBy { it }
+                )
+            }
 
             fun refreshAll() {
                 scope.launch {
@@ -42,7 +64,37 @@ class MainActivity : ComponentActivity() {
 
                     apps = userApps
                     systemized = sysApps
-                    log = "User:${apps.size} Systemized:${systemized.size}"
+                    unlockedPkg = null
+                    log = "Loaded: ${userApps.size} user apps, ${sysApps.size} system/app"
+                }
+            }
+
+            fun systemize(pkg: String) {
+                scope.launch(Dispatchers.IO) {
+                    val result = SystemizerClient.systemize(pkg, "app")
+                    withContext(Dispatchers.Main) {
+                        log = if (result.startsWith("ERROR")) {
+                            result
+                        } else {
+                            "Done: $pkg staged under system/app. Reboot required."
+                        }
+                        refreshAll()
+                    }
+                }
+            }
+
+            fun unsystemize(pkg: String) {
+                scope.launch(Dispatchers.IO) {
+                    val result = SystemizerClient.unsystemize(pkg)
+                    withContext(Dispatchers.Main) {
+                        log = if (result.startsWith("ERROR")) {
+                            result
+                        } else {
+                            "Done: $pkg removed from system/app. Reboot required."
+                        }
+                        unlockedPkg = null
+                        refreshAll()
+                    }
                 }
             }
 
@@ -52,13 +104,11 @@ class MainActivity : ComponentActivity() {
                         TopAppBar(title = "Z Systemizer")
                     }
                 ) { padding ->
-
                     Column(
                         modifier = Modifier
                             .padding(padding)
                             .fillMaxSize()
                     ) {
-
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -69,66 +119,43 @@ class MainActivity : ComponentActivity() {
 
                                 Spacer(Modifier.height(8.dp))
 
-                                TextButton(
-                                    text = "Refresh",
-                                    onClick = { refreshAll() }
-                                )
-                            }
-                        }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(
+                                        text = "Refresh",
+                                        onClick = { refreshAll() }
+                                    )
 
-                        Text("User Apps")
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        ) {
-                            items(apps) { pkg ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .padding(12.dp)
-                                            .fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(pkg)
-
-                                        TextButton(
-                                            text = "SYS",
-                                            onClick = {
-                                                scope.launch(Dispatchers.IO) {
-                                                    val result = SystemizerClient.systemize(pkg, "app")
-                                                    withContext(Dispatchers.Main) {
-                                                        log = result
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
+                                    TextButton(
+                                        text = "Clear Search",
+                                        onClick = { query = "" }
+                                    )
                                 }
                             }
                         }
 
-                        Text("Systemized")
-
-                        LazyColumn(
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            label = { Text("Search package") },
+                            singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f)
+                                .padding(horizontal = 12.dp)
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            items(systemized) { line ->
-                                val parts = line.split(" ")
-                                val pkg = parts.getOrNull(0) ?: line
-                                val type = parts.getOrNull(1) ?: ""
+                            items(visiblePackages()) { pkg ->
+                                val isSystemized = pkg in systemizedPackageSet()
+                                val isUnlocked = unlockedPkg == pkg
 
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(8.dp)
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -136,22 +163,31 @@ class MainActivity : ComponentActivity() {
                                             .fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column {
+                                        Column(
+                                            modifier = Modifier.weight(1f)
+                                        ) {
                                             Text(pkg)
-                                            Text(type)
+                                            Text(if (isSystemized) "system/app locked" else "not processed")
                                         }
 
-                                        TextButton(
-                                            text = "UN",
-                                            onClick = {
-                                                scope.launch(Dispatchers.IO) {
-                                                    val result = SystemizerClient.unsystemize(pkg)
-                                                    withContext(Dispatchers.Main) {
-                                                        log = result
+                                        if (isSystemized) {
+                                            TextButton(
+                                                text = if (isUnlocked) "Remove" else "Unlock",
+                                                onClick = {
+                                                    if (isUnlocked) {
+                                                        unsystemize(pkg)
+                                                    } else {
+                                                        unlockedPkg = pkg
+                                                        log = "Locked: tap Remove to confirm removing $pkg from system/app"
                                                     }
                                                 }
-                                            }
-                                        )
+                                            )
+                                        } else {
+                                            TextButton(
+                                                text = "SYS",
+                                                onClick = { systemize(pkg) }
+                                            )
+                                        }
                                     }
                                 }
                             }
