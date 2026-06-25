@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,59 +25,69 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Rust
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 
-      - name: Build Android App
+      - name: Check Rust CLI
         run: |
-          chmod +x gradlew || true
-          ./gradlew :app:assembleDebug
+          cargo fmt --manifest-path cli/Cargo.toml -- --check
+          cargo check --manifest-path cli/Cargo.toml
 
-      - name: Build Rust CLI
+      - name: Build Android App
+        run: gradle :app:assembleDebug
+
+      - name: Build Rust CLI arm64
         run: |
           rustup target add aarch64-linux-android
-          cargo ndk -t arm64-v8a build --release --manifest-path cli/Cargo.toml
+          cd cli
+          cargo ndk -t arm64-v8a build --release
 
-      - name: Prepare module binary
+      - name: Package artifacts
         run: |
-          mkdir -p module-template/bin/arm64-v8a
-          cp target/aarch64-linux-android/release/systemizer module-template/bin/arm64-v8a/systemizer
-
-      - name: Package KSU module
-        run: |
-          mkdir -p out
+          mkdir -p out module-template/bin/arm64-v8a
+          cp app/build/outputs/apk/debug/app-debug.apk out/Z-Systemizer-manager-v1.0.0-debug.apk
+          cp cli/target/aarch64-linux-android/release/systemizer module-template/bin/arm64-v8a/systemizer
           cd module-template
           zip -r ../out/Z-Systemizer-v1.0.0.zip .
 
-      - name: Upload Release Artifact
+      - name: Verify module package
+        run: |
+          test -f out/Z-Systemizer-v1.0.0.zip
+          unzip -l out/Z-Systemizer-v1.0.0.zip | grep 'bin/arm64-v8a/systemizer'
+          if unzip -l out/Z-Systemizer-v1.0.0.zip | grep -q 'system/priv-app'; then
+            echo 'priv-app path must not be packaged'
+            exit 1
+          fi
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Z-Systemizer
+          name: Z-Systemizer-v1.0.0
           path: out/*
 
   release:
     needs: build
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: Z-Systemizer
+          name: Z-Systemizer-v1.0.0
           path: out
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
+          body_path: CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
