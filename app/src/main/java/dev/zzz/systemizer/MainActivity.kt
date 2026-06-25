@@ -25,25 +25,31 @@ class MainActivity : ComponentActivity() {
 
             val scope = rememberCoroutineScope()
             var apps by remember { mutableStateOf(listOf<String>()) }
+            var systemized by remember { mutableStateOf(listOf<String>()) }
             var log by remember { mutableStateOf("Ready") }
 
-            fun refreshApps() {
+            fun refreshAll() {
                 scope.launch {
                     log = "Loading..."
-                    val result = withContext(Dispatchers.IO) {
+
+                    val userApps = withContext(Dispatchers.IO) {
                         SystemizerClient.listApps()
-                    }
-                    apps = result.lines().filter { it.isNotBlank() }
-                    log = "Loaded ${apps.size} apps"
+                    }.lines().filter { it.isNotBlank() }
+
+                    val sysApps = withContext(Dispatchers.IO) {
+                        SystemizerClient.listSystemized()
+                    }.lines().filter { it.isNotBlank() }
+
+                    apps = userApps
+                    systemized = sysApps
+                    log = "User:${apps.size} Systemized:${systemized.size}"
                 }
             }
 
             MiuixTheme {
                 Scaffold(
                     topBar = {
-                        TopAppBar(
-                            title = { Text("Z Systemizer") }
-                        )
+                        TopAppBar(title = "Z Systemizer")
                     }
                 ) { padding ->
 
@@ -59,28 +65,29 @@ class MainActivity : ComponentActivity() {
                                 .padding(12.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-
                                 Text(text = log)
 
                                 Spacer(Modifier.height(8.dp))
 
                                 TextButton(
-                                    text = "Refresh Apps",
-                                    onClick = { refreshApps() }
+                                    text = "Refresh",
+                                    onClick = { refreshAll() }
                                 )
-
                             }
                         }
 
+                        Text("User Apps")
+
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
                         ) {
                             items(apps) { pkg ->
-
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .padding(8.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -88,31 +95,30 @@ class MainActivity : ComponentActivity() {
                                             .fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(text = pkg)
+                                        Text(pkg)
 
-                                        Row {
-                                            TextButton(
-                                                text = "SYS",
-                                                onClick = {
-                                                    scope.launch {
-                                                        log = SystemizerClient.systemize(pkg, "app")
-                                                    }
+                                        TextButton(
+                                            text = "SYS",
+                                            onClick = {
+                                                scope.launch {
+                                                    log = SystemizerClient.systemize(pkg, "app")
                                                 }
-                                            )
-
-                                            Spacer(Modifier.width(8.dp))
-
-                                            TextButton(
-                                                text = "UN",
-                                                onClick = {
-                                                    scope.launch {
-                                                        log = SystemizerClient.unsystemize(pkg)
-                                                    }
-                                                }
-                                            )
-                                        }
+                                            }
+                                        )
                                     }
                                 }
+                            }
+                        }
+
+                        Text("Systemized")
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            items(systemized) { line ->
+                                Text(text = line, modifier = Modifier.padding(8.dp))
                             }
                         }
                     }
