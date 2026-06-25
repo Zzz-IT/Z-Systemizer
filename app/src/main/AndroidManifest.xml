@@ -1,4 +1,5 @@
-<manifest package="dev.zzz.systemizer">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zzz.systemizer">
 
     <application android:label="Z Systemizer">
 
