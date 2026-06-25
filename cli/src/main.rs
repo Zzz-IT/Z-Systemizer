@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
 const DEFAULT_MODDIR: &str = "/data/adb/modules/ksu-systemizer";
+const SYSTEM_TARGET: &str = "app";
 
 fn moddir() -> PathBuf {
     env::var("SYSTEMIZER_MODDIR")
@@ -31,8 +32,8 @@ fn safe_pkg(pkg: &str) -> Result<String, String> {
 
 fn validate_target(target: &str) -> Result<&str, String> {
     match target {
-        "app" | "priv-app" => Ok(target),
-        _ => Err(format!("invalid target: {}", target)),
+        SYSTEM_TARGET => Ok(SYSTEM_TARGET),
+        _ => Err("only system/app is supported; priv-app is intentionally disabled".to_string()),
     }
 }
 
@@ -121,10 +122,8 @@ fn copy_apks(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
         set_file_perm(&dst, 0o644)?;
     }
 
-    let app_dir = root.join("system").join("app").join(&pkg);
-    let priv_dir = root.join("system").join("priv-app").join(&pkg);
+    let app_dir = root.join("system").join(SYSTEM_TARGET).join(&pkg);
     let _ = fs::remove_dir_all(&app_dir);
-    let _ = fs::remove_dir_all(&priv_dir);
 
     fs::rename(&tmp_dir, &final_dir)
         .map_err(|e| format!("rename {} -> {} failed: {}", tmp_dir.display(), final_dir.display(), e))?;
@@ -144,11 +143,8 @@ fn copy_apks(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
 fn unsystemize(pkg: &str) -> Result<(), String> {
     let pkg = safe_pkg(pkg)?;
     let root = moddir();
-    let app_dir = root.join("system").join("app").join(&pkg);
-    let priv_dir = root.join("system").join("priv-app").join(&pkg);
-
+    let app_dir = root.join("system").join(SYSTEM_TARGET).join(&pkg);
     let _ = fs::remove_dir_all(&app_dir);
-    let _ = fs::remove_dir_all(&priv_dir);
 
     update_description();
     println!("ok=true");
@@ -186,8 +182,7 @@ fn list_dirs(base: &Path, target: &str) -> Vec<(String, String)> {
 
 fn list_systemized() {
     let root = moddir().join("system");
-    let mut rows = list_dirs(&root, "app");
-    rows.extend(list_dirs(&root, "priv-app"));
+    let mut rows = list_dirs(&root, SYSTEM_TARGET);
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     for (pkg, target) in rows {
         println!("{} {}", pkg, target);
@@ -197,9 +192,7 @@ fn list_systemized() {
 fn status(pkg: &str) -> Result<(), String> {
     let pkg = safe_pkg(pkg)?;
     let root = moddir();
-    if root.join("system").join("priv-app").join(&pkg).is_dir() {
-        println!("priv-app");
-    } else if root.join("system").join("app").join(&pkg).is_dir() {
+    if root.join("system").join(SYSTEM_TARGET).join(&pkg).is_dir() {
         println!("app");
     } else {
         println!("none");
@@ -209,13 +202,13 @@ fn status(pkg: &str) -> Result<(), String> {
 
 fn systemized_count() -> usize {
     let root = moddir().join("system");
-    list_dirs(&root, "app").len() + list_dirs(&root, "priv-app").len()
+    list_dirs(&root, SYSTEM_TARGET).len()
 }
 
 fn update_description() {
     let count = systemized_count();
     let desc = format!(
-        "Z Systemizer: {} app(s) staged as systemless system apps. Reboot required after changes.",
+        "Z Systemizer: {} app(s) staged under system/app. Reboot required after changes.",
         count
     );
     let _ = Command::new("ksud")
@@ -227,8 +220,8 @@ fn diagnose() {
     let root = moddir();
     println!("moddir={}", root.display());
     println!("moddir_exists={}", root.is_dir());
-    println!("system_app_dir_exists={}", root.join("system").join("app").is_dir());
-    println!("system_priv_app_dir_exists={}", root.join("system").join("priv-app").is_dir());
+    println!("system_app_dir_exists={}", root.join("system").join(SYSTEM_TARGET).is_dir());
+    println!("priv_app_supported=false");
     println!("systemized_count={}", systemized_count());
     println!(
         "meta_overlayfs_detected={}",
@@ -243,7 +236,7 @@ fn usage() {
     eprintln!("  systemizer list-user-apps");
     eprintln!("  systemizer list-systemized");
     eprintln!("  systemizer status <package>");
-    eprintln!("  systemizer systemize <package> <app|priv-app> [--dry-run]");
+    eprintln!("  systemizer systemize <package> app [--dry-run]");
     eprintln!("  systemizer unsystemize <package>");
 }
 
@@ -272,7 +265,7 @@ fn run() -> Result<(), String> {
         }
         "systemize" => {
             if args.len() < 4 {
-                return Err("usage: systemize <package> <app|priv-app> [--dry-run]".into());
+                return Err("usage: systemize <package> app [--dry-run]".into());
             }
             let dry_run = args.iter().any(|arg| arg == "--dry-run");
             copy_apks(&args[2], &args[3], dry_run)
