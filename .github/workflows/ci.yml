@@ -7,8 +7,34 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  rust:
+    name: Rust CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path cli/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path cli/Cargo.toml -- -D warnings
+
+      - name: Cargo check
+        run: cargo check --manifest-path cli/Cargo.toml
+
+  android:
+    name: Android App
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +52,7 @@ jobs:
 
       - name: Install Android SDK
         run: |
-          yes | sdkmanager --licenses
+          yes | sdkmanager --licenses || true
           sdkmanager "platforms;android-37" "build-tools;37.0.0"
 
       - name: Setup Gradle
@@ -34,18 +60,5 @@ jobs:
         with:
           gradle-version: 9.6.0
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Lint Rust CLI
-        run: |
-          cargo fmt --manifest-path cli/Cargo.toml -- --check
-          cargo clippy --manifest-path cli/Cargo.toml -- -D warnings
-
-      - name: Check Rust CLI
-        run: cargo check --manifest-path cli/Cargo.toml
-
-      - name: Build Android App
-        run: gradle :app:assembleDebug
+      - name: Build Android app
+        run: gradle :app:assembleDebug --stacktrace
