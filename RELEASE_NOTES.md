@@ -1,9 +1,14 @@
-## v1.1.1
+## v1.1.2
+
+### Changed
+- 完全重构 WebUI 架构，迁移至 Vite + TypeScript + SCSS 现代构建体系
+- 采用全新的 Miuix 风格独立胶囊开关交互，废弃复选框和“应用更改”保存逻辑
+- 优化了前端渲染性能，引入防抖(Debounce)和卡片级局部 DOM 刷新，避免全量重绘导致的 UI 阻塞
+
+### Added
+- 新增“更多”下拉菜单，集成“仅显示已系统化”、“诊断信息”和“关于”选项
+- UI 交互增加各种 Miuix 风格的平滑过渡动画和锁定期视觉反馈
 
 ### Fixed
-- 修复模块安装脚本在实机上报 error code 1 的问题
-- 移除安装阶段的 checksum 强制校验，避免设备端兼容性问题
-- 移除对 webroot 目录的权限设置，由 KernelSU 自动管理
-- 移除 set -eu，使用更保守的错误处理
-- module.description 改为中文
-- Release workflow 增加 Android NDK 安装
+- 修复 Rust CLI 中临时目录硬编码导致的潜在并发覆盖文件损坏问题 (采用 PID 隔离)
+- 修复 WebUI 操作弹窗时，应用状态未被及时锁定导致的重复点击漏洞
