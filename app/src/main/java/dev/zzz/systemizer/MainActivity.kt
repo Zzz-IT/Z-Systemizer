@@ -100,8 +100,11 @@ class MainActivity : ComponentActivity() {
                                         TextButton(
                                             text = "SYS",
                                             onClick = {
-                                                scope.launch {
-                                                    log = SystemizerClient.systemize(pkg, "app")
+                                                scope.launch(Dispatchers.IO) {
+                                                    val result = SystemizerClient.systemize(pkg, "app")
+                                                    withContext(Dispatchers.Main) {
+                                                        log = result
+                                                    }
                                                 }
                                             }
                                         )
@@ -118,7 +121,39 @@ class MainActivity : ComponentActivity() {
                                 .weight(1f)
                         ) {
                             items(systemized) { line ->
-                                Text(text = line, modifier = Modifier.padding(8.dp))
+                                val parts = line.split(" ")
+                                val pkg = parts.getOrNull(0) ?: line
+                                val type = parts.getOrNull(1) ?: ""
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .padding(12.dp)
+                                            .fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text(pkg)
+                                            Text(type)
+                                        }
+
+                                        TextButton(
+                                            text = "UN",
+                                            onClick = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val result = SystemizerClient.unsystemize(pkg)
+                                                    withContext(Dispatchers.Main) {
+                                                        log = result
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
