@@ -2,15 +2,16 @@
 
 MODDIR="${MODPATH:-${0%/*}}"
 ABI="${ARCH:-$(getprop ro.product.cpu.abi)}"
+OLD_MODDIR="/data/adb/modules/ksu-systemizer"
 
-ui_print "- Z Systemizer v1.1.1"
-ui_print "- KernelSU WebUI 管理模块"
-ui_print "- 准备 system/app 目录结构"
+ui_print "- Z Systemizer v1.1.4"
+ui_print "- 初始化模块目录"
 
-mkdir -p "$MODDIR/system/app" || abort "Failed to create system/app"
-mkdir -p "$MODDIR/bin" || abort "Failed to create bin"
-mkdir -p "$MODDIR/state" || abort "Failed to create state"
-mkdir -p "$MODDIR/checksums" || abort "Failed to create checksums"
+mkdir -p "$MODDIR/bin" || abort "创建 bin 失败"
+mkdir -p "$MODDIR/system/app" || abort "创建 system/app 失败"
+mkdir -p "$MODDIR/state" || abort "创建 state 失败"
+mkdir -p "$MODDIR/state/apks" || abort "创建 state/apks 失败"
+mkdir -p "$MODDIR/checksums" || abort "创建 checksums 失败"
 
 case "$ABI" in
   arm64-v8a|arm64|aarch64)
@@ -25,23 +26,41 @@ CLI_SRC="$MODDIR/bin/$SYSTEMIZER_ABI/systemizer"
 CLI_DST="$MODDIR/bin/systemizer"
 WEB_ENTRY="$MODDIR/webroot/index.html"
 
-if [ ! -f "$CLI_SRC" ]; then
-  abort "缺少 Rust CLI: bin/$SYSTEMIZER_ABI/systemizer"
-fi
-
-if [ ! -f "$WEB_ENTRY" ]; then
-  abort "缺少 WebUI 入口: webroot/index.html"
-fi
+[ -f "$CLI_SRC" ] || abort "缺少 Rust CLI: bin/$SYSTEMIZER_ABI/systemizer"
+[ -f "$WEB_ENTRY" ] || abort "缺少 WebUI 入口: webroot/index.html"
 
 cp "$CLI_SRC" "$CLI_DST" || abort "安装 systemizer 二进制失败"
+chmod 0755 "$CLI_DST"
+
+if [ "$MODDIR" != "$OLD_MODDIR" ] && [ -f "$OLD_MODDIR/state/systemizer-state.json" ]; then
+  ui_print "- 迁移状态文件"
+  cp "$OLD_MODDIR/state/systemizer-state.json" "$MODDIR/state/systemizer-state.json" \
+    || abort "迁移状态文件失败"
+
+  if [ -d "$OLD_MODDIR/state/apks" ]; then
+    ui_print "- 迁移 APK 缓存"
+    cp -r "$OLD_MODDIR/state/apks/"* "$MODDIR/state/apks/" 2>/dev/null || true
+  fi
+
+  if [ -d "$OLD_MODDIR/system/app" ]; then
+    ui_print "- 迁移 system/app 文件树"
+    cp -r "$OLD_MODDIR/system/app/"* "$MODDIR/system/app/" 2>/dev/null || true
+  fi
+else
+  ui_print "- 未发现新版状态文件，跳过历史迁移"
+fi
+
+SYSTEMIZER_MODDIR="$MODDIR" "$CLI_DST" reconcile --phase install \
+  || abort "状态一致性检查失败"
 
 set_perm_recursive "$MODDIR/bin" 0 0 0755 0755
 set_perm_recursive "$MODDIR/system" 0 0 0755 0644
 set_perm_recursive "$MODDIR/state" 0 0 0755 0644
 set_perm_recursive "$MODDIR/checksums" 0 0 0755 0644
 set_perm "$CLI_DST" 0 0 0755
+if [ -f "$MODDIR/post-fs-data.sh" ]; then
+  set_perm "$MODDIR/post-fs-data.sh" 0 0 0755
+fi
 
-ui_print "- 已安装 CLI ($SYSTEMIZER_ABI)"
-ui_print "- WebUI 可在 KernelSU 管理器中使用"
-ui_print "- 仅支持 system/app"
-ui_print "- 操作后需要重启"
+ui_print "- 安装完成"
+ui_print "- 已启用状态文件与开机前一致性检查"

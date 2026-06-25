@@ -22,15 +22,28 @@ export async function diagnose(): Promise<string> {
   return shell(`${CLI} diagnose`)
 }
 
-export async function getSystemizedPackages(): Promise<Set<string>> {
-  const out = await shell(`${CLI} list-systemized`)
+export type AppStatus = 'active' | 'pending_add' | 'pending_remove'
 
-  const pkgs = out
-    .split('\n')
-    .map(line => line.trim().split(/\s+/)[0])
-    .filter(Boolean)
+export interface AppRecord {
+  package: string
+  target: 'app'
+  status: AppStatus
+  createdAt: number
+  updatedAt: number
+  pendingBootId: string | null
+}
 
-  return new Set(pkgs)
+export interface SystemizerState {
+  schemaVersion: number
+  moduleId: string
+  updatedAt: number
+  bootId: string
+  apps: Record<string, AppRecord>
+}
+
+export async function getSystemizerState(): Promise<SystemizerState> {
+  const out = await shell(`${CLI} state-json`)
+  return JSON.parse(out)
 }
 
 export async function getApps(): Promise<AppEntry[]> {

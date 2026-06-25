@@ -1,6 +1,6 @@
 id=ksu-systemizer
 name=Z Systemizer
-version=v1.1.3
-versionCode=113
+version=v1.1.4
+versionCode=114
 author=Zzz
 description=KernelSU WebUI 模块，用于 system/app 应用管理。通过 WebUI 将用户应用转换为系统应用。

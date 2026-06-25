@@ -20,11 +20,14 @@
         <div class="header-menu-wrap">
           <button class="icon-button more-button">更多</button>
           <div class="dropdown-menu">
-            <label class="menu-item">
-              <input type="checkbox" id="toggle-only-sys" /> 仅显示已系统化
-            </label>
-            <button class="menu-item" id="menu-diagnose">诊断信息</button>
-            <button class="menu-item" id="menu-about">关于</button>
+            <label class="menu-item toggle-item">
+            <input type="checkbox" id="toggle-only-sys">
+            <span>仅看已系统化</span>
+          </label>
+          <div class="menu-divider"></div>
+          <button class="menu-item" id="menu-diagnose">运行诊断</button>
+          <button class="menu-item" id="menu-clear-icons">清除图标缓存</button>
+          <button class="menu-item" id="menu-about">关于</button>
           </div>
         </div>
       </div>
@@ -51,14 +54,13 @@
 
     <div class="status-line">正在加载应用列表...</div>
 
-    <main class="app-list"></main>
-
-    <button class="reboot-fab" aria-label="重启设备">
-      <svg class="reboot-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm5.66 3.76a1 1 0 0 1 1.42 0A9 9 0 1 1 4.92 6.76a1 1 0 1 1 1.42 1.41A7 7 0 1 0 17.66 8.17a1 1 0 0 1 0-1.41Z"/>
-      </svg>
-    </button>
   </div>
+
+  <button class="reboot-fab" aria-label="重启设备">
+    <svg class="reboot-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm5.66 3.76a1 1 0 0 1 1.42 0A9 9 0 1 1 4.92 6.76a1 1 0 1 1 1.42 1.41A7 7 0 1 0 17.66 8.17a1 1 0 0 1 0-1.41Z"/>
+    </svg>
+  </button>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

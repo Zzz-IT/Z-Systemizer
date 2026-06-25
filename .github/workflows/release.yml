@@ -67,7 +67,11 @@ jobs:
           mkdir -p module-template/bin/arm64-v8a
           mkdir -p module-template/system/app
           mkdir -p module-template/state
+          mkdir -p module-template/state/apks
           mkdir -p module-template/checksums
+          touch module-template/system/app/.gitkeep
+          touch module-template/state/.gitkeep
+          touch module-template/state/apks/.gitkeep
           
           rm -rf module-template/webroot
           mkdir -p module-template/webroot
@@ -80,6 +84,7 @@ jobs:
 
           test -f module-template/module.prop
           test -f module-template/customize.sh
+          test -f module-template/post-fs-data.sh
           test -f module-template/webroot/index.html
 
           (
@@ -98,6 +103,7 @@ jobs:
 
           unzip -l "$ZIP" | grep 'module.prop'
           unzip -l "$ZIP" | grep 'customize.sh'
+          unzip -l "$ZIP" | grep 'post-fs-data.sh'
           unzip -l "$ZIP" | grep 'bin/arm64-v8a/systemizer'
           unzip -l "$ZIP" | grep 'webroot/index.html'
 
@@ -106,7 +112,7 @@ jobs:
             exit 1
           fi
 
-          if unzip -l "$ZIP" | grep -q '.apk'; then
+          if unzip -l "$ZIP" | grep -q '\.apk$'; then
             echo 'APK must not be packaged in WebUI release'
             exit 1
           fi

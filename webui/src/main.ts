@@ -1,12 +1,13 @@
 import {
   getApps,
-  getSystemizedPackages,
+  getSystemizerState,
   systemize,
   unsystemize,
   diagnose,
   rebootDevice,
+  type SystemizerState
 } from './api'
-import { buildUiApps, hasPending, mergePendingState, type UiAppEntry } from './state'
+import { buildUiApps, hasPending, mergeBusyState, type UiAppEntry } from './state'
 import './style.scss'
 
 const state = {
@@ -14,6 +15,7 @@ const state = {
   filter: '',
   onlySystemized: false,
   globalBusy: false,
+  rawState: null as SystemizerState | null,
 }
 
 const renderedCards = new Map<string, HTMLElement>()
@@ -33,34 +35,66 @@ function escapeHtml(value: string): string {
 }
 
 function statusText(app: UiAppEntry): string {
-  if (app.pending === 'add') return '待系统化'
-  if (app.pending === 'remove') return '待移除'
-  return app.systemized ? '已系统化' : '未系统化'
+  switch (app.status) {
+    case 'pending-add': return '待系统化'
+    case 'pending-remove': return '待移除'
+    case 'systemized': return '已系统化'
+    case 'normal':
+    default: return '未系统化'
+  }
 }
 
 function statusClass(app: UiAppEntry): string {
-  if (app.pending === 'add') return 'is-pending-add'
-  if (app.pending === 'remove') return 'is-pending-remove'
-  return app.systemized ? 'is-systemized' : 'is-normal'
+  switch (app.status) {
+    case 'pending-add': return 'is-pending-add'
+    case 'pending-remove': return 'is-pending-remove'
+    case 'systemized': return 'is-systemized'
+    case 'normal':
+    default: return 'is-normal'
+  }
 }
 
 function isOn(app: UiAppEntry): boolean {
-  if (app.pending === 'add') return true
-  if (app.pending === 'remove') return false
-  return app.systemized
+  return app.status === 'pending-add' || app.status === 'systemized'
 }
 
-function render() {
-  const q = state.filter.trim().toLowerCase()
-  const list = $('.app-list')
+function statusPriority(app: UiAppEntry): number {
+  switch (app.status) {
+    case 'pending-add': return 0
+    case 'pending-remove': return 1
+    case 'systemized': return 2
+    case 'normal':
+    default: return 3
+  }
+}
 
-  const apps = state.apps.filter(app => {
+function sortApps(apps: UiAppEntry[]): UiAppEntry[] {
+  return [...apps].sort((a, b) => {
+    const pa = statusPriority(a)
+    const pb = statusPriority(b)
+
+    if (pa !== pb) return pa - pb
+
+    return a.appName.localeCompare(b.appName, 'zh-Hans-CN')
+  })
+}
+
+function visibleApps(): UiAppEntry[] {
+  const q = state.filter.trim().toLowerCase()
+
+  return sortApps(state.apps.filter(app => {
     if (state.onlySystemized && !isOn(app)) return false
+
+    if (!q) return true
 
     return app.appName.toLowerCase().includes(q)
       || app.packageName.toLowerCase().includes(q)
-  })
+  }))
+}
 
+function render() {
+  const list = $('.app-list')
+  const apps = visibleApps()
   const visiblePkgs = new Set(apps.map(app => app.packageName))
 
   for (const [pkg, card] of renderedCards) {
@@ -71,6 +105,9 @@ function render() {
     }
   }
 
+  // To preserve ordering with appendChild, we need to append in order.
+  // Using appendChild on an existing node moves it to the end.
+  // We can just iterate and append, diffing will keep instances alive but correct their order.
   for (const app of apps) {
     let card = renderedCards.get(app.packageName)
 
@@ -78,10 +115,10 @@ function render() {
       card = createCardElement(app)
       renderedCards.set(app.packageName, card)
       list.appendChild(card)
-      const el = card
-      requestAnimationFrame(() => el.classList.add('enter-done'))
+      requestAnimationFrame(() => card!.classList.add('enter-done'))
     } else {
       updateCardElement(card, app)
+      list.appendChild(card) // move to correct visual position
     }
   }
 
@@ -122,9 +159,115 @@ function createCardElement(app: UiAppEntry): HTMLElement {
   return card
 }
 
+const DB_NAME = 'ksu_systemizer_db'
+const STORE_NAME = 'icons'
+
+let dbPromise: Promise<IDBDatabase> | null = null
+
+function openDB(): Promise<IDBDatabase> {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1)
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore(STORE_NAME)
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+  }
+  return dbPromise
+}
+
+async function getIconBlob(pkg: string): Promise<Blob | null> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly')
+      const req = tx.objectStore(STORE_NAME).get(pkg)
+      req.onsuccess = () => resolve(req.result || null)
+      req.onerror = () => reject(req.error)
+    })
+  } catch (e) {
+    console.warn('IDB get failed', e)
+    return null
+  }
+}
+
+async function saveIconBlob(pkg: string, blob: Blob): Promise<void> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const req = tx.objectStore(STORE_NAME).put(blob, pkg)
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+  } catch (e) {
+    console.warn('IDB save failed', e)
+  }
+}
+
+export async function clearIconCache(): Promise<void> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const req = tx.objectStore(STORE_NAME).clear()
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+  } catch (e) {
+    console.warn('IDB clear failed', e)
+  }
+}
+
+async function fetchAndSaveIcon(pkg: string): Promise<string> {
+  try {
+    const res = await fetch(`ksu://icon/${pkg}`)
+    if (res.ok) {
+      const blob = await res.blob()
+      await saveIconBlob(pkg, blob)
+      return URL.createObjectURL(blob)
+    }
+  } catch (e) {
+    console.warn("fetch ksu:// failed, trying canvas fallback...", e)
+  }
+  
+  return new Promise<string>((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(img, 0, 0)
+        try {
+          canvas.toBlob((blob) => {
+            if (blob) {
+              saveIconBlob(pkg, blob).catch(console.error)
+              resolve(URL.createObjectURL(blob))
+            } else {
+              resolve(`ksu://icon/${pkg}`)
+            }
+          })
+        } catch (e) {
+          console.warn("canvas toBlob failed, tainted?", e)
+          resolve(`ksu://icon/${pkg}`)
+        }
+      } else {
+        resolve(`ksu://icon/${pkg}`)
+      }
+    }
+    img.onerror = () => resolve(`ksu://icon/${pkg}`)
+    img.src = `ksu://icon/${pkg}`
+  })
+}
+
 const iconCache = new Map<string, string>()
 
-function bindIconCache(card: HTMLElement, app: UiAppEntry) {
+async function bindIconCache(card: HTMLElement, app: UiAppEntry) {
   const img = card.querySelector<HTMLImageElement>('.app-icon')
   if (!img) return
 
@@ -135,11 +278,20 @@ function bindIconCache(card: HTMLElement, app: UiAppEntry) {
     return
   }
 
-  img.onload = () => {
-    iconCache.set(app.packageName, img.src)
+  const blob = await getIconBlob(app.packageName)
+  if (blob) {
+    const url = URL.createObjectURL(blob)
+    iconCache.set(app.packageName, url)
+    img.src = url
     img.classList.add('is-loaded')
+    return
   }
 
+  const url = await fetchAndSaveIcon(app.packageName)
+  iconCache.set(app.packageName, url)
+  img.src = url
+  img.classList.add('is-loaded')
+  
   img.onerror = () => {
     img.classList.add('is-error')
   }
@@ -168,10 +320,12 @@ function updateCardDOM(pkg: string) {
 }
 
 function renderSummary() {
-  const systemizedCount = state.apps.filter(app => app.systemized).length
+  const systemizedCount = state.apps.filter(app => 
+    app.status === 'systemized' || app.status === 'pending-remove'
+  ).length
 
   const pendingCount = state.apps.filter(app =>
-    app.pending !== 'none'
+    app.status === 'pending-add' || app.status === 'pending-remove'
   ).length
 
   $('.summary-systemized').textContent = String(systemizedCount)
@@ -186,17 +340,17 @@ function renderRebootButton() {
 async function toggleApp(app: UiAppEntry) {
   if (state.globalBusy || app.busy) return
 
-  if (app.pending === 'add') {
-    await cancelPendingAdd(app)
+  if (app.status === 'pending-add') {
+    await doUnsystemize(app, '已取消待系统化')
     return
   }
 
-  if (app.pending === 'remove') {
-    await cancelPendingRemove(app)
+  if (app.status === 'pending-remove') {
+    await doSystemize(app, '已取消待移除，重新写入队列')
     return
   }
 
-  if (app.systemized) {
+  if (app.status === 'systemized') {
     app.busy = true
     updateCardDOM(app.packageName)
 
@@ -207,72 +361,40 @@ async function toggleApp(app: UiAppEntry) {
       return
     }
 
-    await doUnsystemize(app)
+    await doUnsystemize(app, '已记录待移除')
     return
   }
 
-  await doSystemize(app)
+  await doSystemize(app, '已记录待系统化')
 }
 
-async function doSystemize(app: UiAppEntry) {
+async function doSystemize(app: UiAppEntry, msg: string) {
   app.busy = true
   updateCardDOM(app.packageName)
 
   try {
     await systemize(app.packageName)
-    app.pending = 'add'
-    toast(`已添加 ${app.appName} 的待系统化`)
+    toast(msg)
+    app.busy = false
+    await refresh()
   } catch (e) {
     toast(errorMessage(e))
-  } finally {
     app.busy = false
     updateCardDOM(app.packageName)
   }
 }
 
-async function doUnsystemize(app: UiAppEntry) {
+async function doUnsystemize(app: UiAppEntry, msg: string) {
   app.busy = true
   updateCardDOM(app.packageName)
 
   try {
     await unsystemize(app.packageName)
-    app.pending = 'remove'
-    toast(`已记录 ${app.appName} 的待移除`)
-  } catch (e) {
-    toast(errorMessage(e))
-  } finally {
+    toast(msg)
     app.busy = false
-    updateCardDOM(app.packageName)
-  }
-}
-
-async function cancelPendingAdd(app: UiAppEntry) {
-  app.busy = true
-  updateCardDOM(app.packageName)
-
-  try {
-    await unsystemize(app.packageName)
-    app.pending = 'none'
-    toast(`已取消 ${app.appName} 的待系统化`)
+    await refresh()
   } catch (e) {
     toast(errorMessage(e))
-  } finally {
-    app.busy = false
-    updateCardDOM(app.packageName)
-  }
-}
-
-async function cancelPendingRemove(app: UiAppEntry) {
-  app.busy = true
-  updateCardDOM(app.packageName)
-
-  try {
-    await systemize(app.packageName)
-    app.pending = 'none'
-    toast(`已恢复 ${app.appName} 的系统化状态`)
-  } catch (e) {
-    toast(errorMessage(e))
-  } finally {
     app.busy = false
     updateCardDOM(app.packageName)
   }
@@ -360,9 +482,19 @@ function showConfirm(options: {
 async function loadDiagnoseDialog() {
   try {
     const out = await diagnose()
+    let msg = out || '无诊断输出'
+    if (state.rawState) {
+      const records = Object.values(state.rawState.apps)
+      const active = records.filter(r => r.status === 'active').length
+      const pendingAdd = records.filter(r => r.status === 'pending_add').length
+      const pendingRemove = records.filter(r => r.status === 'pending_remove').length
+      
+      msg += `\n\n--- UI 状态映射 ---\n已系统化: ${active}\n待系统化: ${pendingAdd}\n待移除: ${pendingRemove}\n`
+    }
+
     await showConfirm({
       title: '诊断信息',
-      message: out || '无诊断输出',
+      message: msg,
       cancelText: '关闭',
       confirmText: '刷新',
     })
@@ -379,13 +511,16 @@ async function refresh() {
   try {
     const oldApps = state.apps
 
-    const [apps, systemized] = await Promise.all([
+    const [apps, sysState] = await Promise.all([
       getApps(),
-      getSystemizedPackages(),
+      getSystemizerState(),
     ])
 
-    const nextApps = buildUiApps(apps, systemized)
-    state.apps = mergePendingState(nextApps, oldApps)
+    state.rawState = sysState
+    let nextApps = buildUiApps(apps, sysState)
+    nextApps = mergeBusyState(nextApps, oldApps)
+    
+    state.apps = nextApps
 
     $('.status-line').textContent = `已加载 ${state.apps.length} 个应用`
     render()
@@ -473,11 +608,18 @@ function bindEvents() {
     loadDiagnoseDialog()
   }
   
+  document.getElementById('menu-clear-icons')!.onclick = async () => {
+    dropdownMenu.classList.remove('show')
+    await clearIconCache()
+    iconCache.clear()
+    toast('已清除本地图标缓存，重新加载将抓取新图标')
+  }
+
   document.getElementById('menu-about')!.onclick = () => {
     dropdownMenu.classList.remove('show')
     showConfirm({
       title: '关于 Z-Systemizer',
-      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.2\n基于 KernelSU API 构建。',
+      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.4\n持久状态与自动同步',
       cancelText: '关闭',
       confirmText: '确定'
     })
