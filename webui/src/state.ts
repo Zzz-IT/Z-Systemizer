@@ -43,8 +43,6 @@ export function mergePendingState(nextApps: UiAppEntry[], oldApps: UiAppEntry[])
     return {
       ...next,
       pending: old.pending,
-      busy: false,
-      systemized: old.systemized,
     }
   })
 }

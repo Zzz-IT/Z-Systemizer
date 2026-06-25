@@ -168,9 +168,7 @@ function updateCardDOM(pkg: string) {
 }
 
 function renderSummary() {
-  const systemizedCount = state.apps.filter(app =>
-    app.systemized && app.pending !== 'remove'
-  ).length
+  const systemizedCount = state.apps.filter(app => app.systemized).length
 
   const pendingCount = state.apps.filter(app =>
     app.pending !== 'none'
@@ -222,7 +220,6 @@ async function doSystemize(app: UiAppEntry) {
 
   try {
     await systemize(app.packageName)
-    app.systemized = true
     app.pending = 'add'
     toast(`已添加 ${app.appName} 的待系统化`)
   } catch (e) {
@@ -239,7 +236,6 @@ async function doUnsystemize(app: UiAppEntry) {
 
   try {
     await unsystemize(app.packageName)
-    app.systemized = false
     app.pending = 'remove'
     toast(`已记录 ${app.appName} 的待移除`)
   } catch (e) {
@@ -256,7 +252,6 @@ async function cancelPendingAdd(app: UiAppEntry) {
 
   try {
     await unsystemize(app.packageName)
-    app.systemized = false
     app.pending = 'none'
     toast(`已取消 ${app.appName} 的待系统化`)
   } catch (e) {
@@ -273,7 +268,6 @@ async function cancelPendingRemove(app: UiAppEntry) {
 
   try {
     await systemize(app.packageName)
-    app.systemized = true
     app.pending = 'none'
     toast(`已恢复 ${app.appName} 的系统化状态`)
   } catch (e) {
