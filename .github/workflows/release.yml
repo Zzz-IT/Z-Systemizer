@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Build Android App
+        run: |
+          chmod +x gradlew || true
+          ./gradlew :app:assembleDebug
+
+      - name: Build Rust CLI
+        run: |
+          rustup target add aarch64-linux-android
+          cargo ndk -t arm64-v8a build --release --manifest-path cli/Cargo.toml
+
+      - name: Prepare module binary
+        run: |
+          mkdir -p module-template/bin/arm64-v8a
+          cp target/aarch64-linux-android/release/systemizer module-template/bin/arm64-v8a/systemizer
+
+      - name: Package KSU module
+        run: |
+          mkdir -p out
+          cd module-template
+          zip -r ../out/Z-Systemizer-v1.0.0.zip .
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Z-Systemizer
+          path: out/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Z-Systemizer
+          path: out
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
