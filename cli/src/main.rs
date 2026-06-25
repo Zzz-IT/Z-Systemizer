@@ -16,7 +16,9 @@ fn moddir() -> PathBuf {
 fn is_valid_pkg(pkg: &str) -> bool {
     !pkg.is_empty()
         && pkg.len() <= 255
-        && pkg.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+        && pkg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
         && !pkg.starts_with('.')
         && !pkg.ends_with('.')
         && !pkg.contains("..")
@@ -125,11 +127,21 @@ fn copy_apks(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     let app_dir = root.join("system").join(SYSTEM_TARGET).join(&pkg);
     let _ = fs::remove_dir_all(&app_dir);
 
-    fs::rename(&tmp_dir, &final_dir)
-        .map_err(|e| format!("rename {} -> {} failed: {}", tmp_dir.display(), final_dir.display(), e))?;
+    fs::rename(&tmp_dir, &final_dir).map_err(|e| {
+        format!(
+            "rename {} -> {} failed: {}",
+            tmp_dir.display(),
+            final_dir.display(),
+            e
+        )
+    })?;
 
     let _ = Command::new("chcon")
-        .args(["-R", "u:object_r:system_file:s0", final_dir.to_string_lossy().as_ref()])
+        .args([
+            "-R",
+            "u:object_r:system_file:s0",
+            final_dir.to_string_lossy().as_ref(),
+        ])
         .status();
 
     update_description();
@@ -220,7 +232,10 @@ fn diagnose() {
     let root = moddir();
     println!("moddir={}", root.display());
     println!("moddir_exists={}", root.is_dir());
-    println!("system_app_dir_exists={}", root.join("system").join(SYSTEM_TARGET).is_dir());
+    println!(
+        "system_app_dir_exists={}",
+        root.join("system").join(SYSTEM_TARGET).is_dir()
+    );
     println!("priv_app_supported=false");
     println!("systemized_count={}", systemized_count());
     println!(
