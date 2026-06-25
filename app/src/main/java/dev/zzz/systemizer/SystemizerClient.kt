@@ -21,4 +21,9 @@ object SystemizerClient {
         val cmd = "/data/adb/modules/ksu-systemizer/bin/systemizer list-user-apps"
         return RootCommand.exec(cmd)
     }
+
+    fun listSystemized(): String {
+        val cmd = "/data/adb/modules/ksu-systemizer/bin/systemizer list-systemized"
+        return RootCommand.exec(cmd)
+    }
 }
