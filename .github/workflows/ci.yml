@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.6.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Lint Rust CLI
+        run: |
+          cargo fmt --manifest-path cli/Cargo.toml -- --check
+          cargo clippy --manifest-path cli/Cargo.toml -- -D warnings
+
+      - name: Check Rust CLI
+        run: cargo check --manifest-path cli/Cargo.toml
+
+      - name: Build Android App
+        run: gradle :app:assembleDebug
