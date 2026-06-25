@@ -9,11 +9,10 @@
   <title>Z Systemizer</title>
 </head>
 <body>
-  <main class="page">
-    <header class="header">
-      <div>
+  <div class="page">
+    <header class="app-header">
+      <div class="header-title">
         <h1>Z Systemizer</h1>
-        <p class="status-line">正在加载...</p>
       </div>
 
       <div class="header-actions">
@@ -47,13 +46,19 @@
     </section>
 
     <section class="search-card">
-      <input class="search-input" placeholder="搜索应用名称或包名" />
+      <input type="text" class="search-input" placeholder="搜索包名或应用名..." />
     </section>
 
-    <section class="app-list"></section>
-  </main>
+    <div class="status-line">正在加载应用列表...</div>
 
-  <button class="reboot-fab">重启</button>
+    <main class="app-list"></main>
+
+    <button class="reboot-fab" aria-label="重启设备">
+      <svg class="reboot-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm5.66 3.76a1 1 0 0 1 1.42 0A9 9 0 1 1 4.92 6.76a1 1 0 1 1 1.42 1.41A7 7 0 1 0 17.66 8.17a1 1 0 0 1 0-1.41Z"/>
+      </svg>
+    </button>
+  </div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

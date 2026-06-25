@@ -6,7 +6,7 @@ import {
   diagnose,
   rebootDevice,
 } from './api'
-import { buildUiApps, hasPending, type UiAppEntry } from './state'
+import { buildUiApps, hasPending, mergePendingState, type UiAppEntry } from './state'
 import './style.scss'
 
 const state = {
@@ -15,6 +15,8 @@ const state = {
   onlySystemized: false,
   globalBusy: false,
 }
+
+const renderedCards = new Map<string, HTMLElement>()
 
 function $(selector: string): HTMLElement {
   const el = document.querySelector<HTMLElement>(selector)
@@ -31,9 +33,15 @@ function escapeHtml(value: string): string {
 }
 
 function statusText(app: UiAppEntry): string {
-  if (app.pending === 'add') return '已写入，重启后生效'
-  if (app.pending === 'remove') return '已移除，重启后生效'
+  if (app.pending === 'add') return '待系统化'
+  if (app.pending === 'remove') return '待移除'
   return app.systemized ? '已系统化' : '未系统化'
+}
+
+function statusClass(app: UiAppEntry): string {
+  if (app.pending === 'add') return 'is-pending-add'
+  if (app.pending === 'remove') return 'is-pending-remove'
+  return app.systemized ? 'is-systemized' : 'is-normal'
 }
 
 function isOn(app: UiAppEntry): boolean {
@@ -46,64 +54,126 @@ function render() {
   const q = state.filter.trim().toLowerCase()
   const list = $('.app-list')
 
-  const apps = state.apps
-    .filter(app => {
-      if (state.onlySystemized && !isOn(app)) return false
+  const apps = state.apps.filter(app => {
+    if (state.onlySystemized && !isOn(app)) return false
 
-      return app.appName.toLowerCase().includes(q)
-        || app.packageName.toLowerCase().includes(q)
-    })
+    return app.appName.toLowerCase().includes(q)
+      || app.packageName.toLowerCase().includes(q)
+  })
 
-  list.innerHTML = apps.map(app => renderCard(app)).join('')
+  const visiblePkgs = new Set(apps.map(app => app.packageName))
+
+  for (const [pkg, card] of renderedCards) {
+    if (!visiblePkgs.has(pkg)) {
+      card.classList.add('leave')
+      setTimeout(() => card.remove(), 180)
+      renderedCards.delete(pkg)
+    }
+  }
+
+  for (const app of apps) {
+    let card = renderedCards.get(app.packageName)
+
+    if (!card) {
+      card = createCardElement(app)
+      renderedCards.set(app.packageName, card)
+      list.appendChild(card)
+      requestAnimationFrame(() => card.classList.add('enter-done'))
+    } else {
+      updateCardElement(card, app)
+    }
+  }
+
   renderSummary()
   renderRebootButton()
 }
 
-function renderCard(app: UiAppEntry): string {
+function renderCardInner(app: UiAppEntry): string {
   const on = isOn(app)
-  const pending = app.pending !== 'none'
+  const pkgEscaped = escapeHtml(app.packageName)
+  const nameEscaped = escapeHtml(app.appName)
 
   return `
-    <article class="app-card ${on ? 'is-on' : ''} ${pending ? 'is-pending' : ''}" data-package="${escapeHtml(app.packageName)}">
-      <div class="icon-wrap">
-        <img class="app-icon" src="ksu://icon/${escapeHtml(app.packageName)}" alt="" />
-        <div class="icon-fallback">${escapeHtml((app.appName || app.packageName).slice(0, 1).toUpperCase())}</div>
-      </div>
+    <div class="icon-wrap">
+      <img class="app-icon" src="ksu://icon/${pkgEscaped}" alt="" />
+      <div class="icon-fallback">${escapeHtml((app.appName || app.packageName).slice(0, 1).toUpperCase())}</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">${nameEscaped}</div>
+      <div class="package-name">${pkgEscaped}</div>
+      <div class="app-status ${statusClass(app)}">${statusText(app)}</div>
+    </div>
+    <button class="switch ${on ? 'is-on' : ''} ${app.busy ? 'is-busy' : ''}" aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  `
+}
 
-      <div class="app-info">
-        <div class="app-name">${escapeHtml(app.appName)}</div>
-        <div class="package-name">${escapeHtml(app.packageName)}</div>
-        <div class="app-status">${statusText(app)}</div>
-      </div>
-
-      <button class="switch ${on ? 'is-on' : ''} ${app.busy ? 'is-busy' : ''}" aria-label="切换系统化状态">
-        <span class="switch-thumb"></span>
-      </button>
+function createCardElement(app: UiAppEntry): HTMLElement {
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = `
+    <article class="app-card enter" data-package="${escapeHtml(app.packageName)}">
+      ${renderCardInner(app)}
     </article>
   `
+  const card = wrapper.firstElementChild as HTMLElement
+  bindIconCache(card, app)
+  return card
+}
+
+const iconCache = new Map<string, string>()
+
+function bindIconCache(card: HTMLElement, app: UiAppEntry) {
+  const img = card.querySelector<HTMLImageElement>('.app-icon')
+  if (!img) return
+
+  const cached = iconCache.get(app.packageName)
+  if (cached) {
+    img.src = cached
+    img.classList.add('is-loaded')
+    return
+  }
+
+  img.onload = () => {
+    iconCache.set(app.packageName, img.src)
+    img.classList.add('is-loaded')
+  }
+
+  img.onerror = () => {
+    img.classList.add('is-error')
+  }
+}
+
+function updateCardElement(card: HTMLElement, app: UiAppEntry) {
+  const on = isOn(app)
+  
+  const status = card.querySelector('.app-status')!
+  status.textContent = statusText(app)
+  status.className = `app-status ${statusClass(app)}`
+  
+  card.querySelector('.switch')!.className = `switch ${on ? 'is-on' : ''} ${app.busy ? 'is-busy' : ''}`
 }
 
 function updateCardDOM(pkg: string) {
   const app = state.apps.find(item => item.packageName === pkg)
   if (!app) return
   
-  const card = document.querySelector<HTMLElement>(`.app-card[data-package="${escapeHtml(pkg)}"]`)
+  const card = renderedCards.get(pkg)
   if (!card) return
   
-  const on = isOn(app)
-  const pending = app.pending !== 'none'
-  
-  card.className = `app-card ${on ? 'is-on' : ''} ${pending ? 'is-pending' : ''}`
-  card.querySelector('.app-status')!.textContent = statusText(app)
-  card.querySelector('.switch')!.className = `switch ${on ? 'is-on' : ''} ${app.busy ? 'is-busy' : ''}`
-  
+  updateCardElement(card, app)
   renderSummary()
   renderRebootButton()
 }
 
 function renderSummary() {
-  const systemizedCount = state.apps.filter(app => isOn(app)).length
-  const pendingCount = state.apps.filter(app => app.pending !== 'none').length
+  const systemizedCount = state.apps.filter(app =>
+    app.systemized && app.pending !== 'remove'
+  ).length
+
+  const pendingCount = state.apps.filter(app =>
+    app.pending !== 'none'
+  ).length
 
   $('.summary-systemized').textContent = String(systemizedCount)
   $('.summary-pending').textContent = String(pendingCount)
@@ -117,21 +187,32 @@ function renderRebootButton() {
 async function toggleApp(app: UiAppEntry) {
   if (state.globalBusy || app.busy) return
 
-  const currentlyOn = isOn(app)
+  if (app.pending === 'add') {
+    await cancelPendingAdd(app)
+    return
+  }
 
-  if (currentlyOn) {
+  if (app.pending === 'remove') {
+    await cancelPendingRemove(app)
+    return
+  }
+
+  if (app.systemized) {
     app.busy = true
     updateCardDOM(app.packageName)
+
     const ok = await confirmRemove(app)
     if (!ok) {
       app.busy = false
       updateCardDOM(app.packageName)
       return
     }
+
     await doUnsystemize(app)
-  } else {
-    await doSystemize(app)
+    return
   }
+
+  await doSystemize(app)
 }
 
 async function doSystemize(app: UiAppEntry) {
@@ -142,7 +223,7 @@ async function doSystemize(app: UiAppEntry) {
     await systemize(app.packageName)
     app.systemized = true
     app.pending = 'add'
-    toast(`已写入 ${app.appName}，重启后生效`)
+    toast(`已添加 ${app.appName} 的待系统化`)
   } catch (e) {
     toast(errorMessage(e))
   } finally {
@@ -159,7 +240,41 @@ async function doUnsystemize(app: UiAppEntry) {
     await unsystemize(app.packageName)
     app.systemized = false
     app.pending = 'remove'
-    toast(`已移除 ${app.appName}，重启后生效`)
+    toast(`已记录 ${app.appName} 的待移除`)
+  } catch (e) {
+    toast(errorMessage(e))
+  } finally {
+    app.busy = false
+    updateCardDOM(app.packageName)
+  }
+}
+
+async function cancelPendingAdd(app: UiAppEntry) {
+  app.busy = true
+  updateCardDOM(app.packageName)
+
+  try {
+    await unsystemize(app.packageName)
+    app.systemized = false
+    app.pending = 'none'
+    toast(`已取消 ${app.appName} 的待系统化`)
+  } catch (e) {
+    toast(errorMessage(e))
+  } finally {
+    app.busy = false
+    updateCardDOM(app.packageName)
+  }
+}
+
+async function cancelPendingRemove(app: UiAppEntry) {
+  app.busy = true
+  updateCardDOM(app.packageName)
+
+  try {
+    await systemize(app.packageName)
+    app.systemized = true
+    app.pending = 'none'
+    toast(`已恢复 ${app.appName} 的系统化状态`)
   } catch (e) {
     toast(errorMessage(e))
   } finally {
@@ -232,16 +347,18 @@ function showConfirm(options: {
     `
 
     document.body.appendChild(dialog)
+    requestAnimationFrame(() => dialog.classList.add('show'))
 
-    dialog.querySelector<HTMLButtonElement>('.dialog-cancel')!.onclick = () => {
-      dialog.remove()
-      resolve(false)
+    const closeDialog = (result: boolean) => {
+      dialog.classList.remove('show')
+      setTimeout(() => {
+        dialog.remove()
+        resolve(result)
+      }, 180)
     }
 
-    dialog.querySelector<HTMLButtonElement>('.dialog-confirm')!.onclick = () => {
-      dialog.remove()
-      resolve(true)
-    }
+    dialog.querySelector<HTMLButtonElement>('.dialog-cancel')!.onclick = () => closeDialog(false)
+    dialog.querySelector<HTMLButtonElement>('.dialog-confirm')!.onclick = () => closeDialog(true)
   })
 }
 
@@ -265,12 +382,16 @@ async function refresh() {
   $('.status-line').textContent = '正在刷新...'
 
   try {
+    const oldApps = state.apps
+
     const [apps, systemized] = await Promise.all([
       getApps(),
       getSystemizedPackages(),
     ])
 
-    state.apps = buildUiApps(apps, systemized)
+    const nextApps = buildUiApps(apps, systemized)
+    state.apps = mergePendingState(nextApps, oldApps)
+
     $('.status-line').textContent = `已加载 ${state.apps.length} 个应用`
     render()
   } finally {
@@ -280,10 +401,24 @@ async function refresh() {
 
 function bindEvents() {
   let searchTimeout: ReturnType<typeof setTimeout>
+  let lastFilter = ''
+
   document.querySelector<HTMLInputElement>('.search-input')!.oninput = e => {
     clearTimeout(searchTimeout)
+
     searchTimeout = setTimeout(() => {
-      state.filter = (e.target as HTMLInputElement).value
+      const value = (e.target as HTMLInputElement).value
+      const wasNonEmpty = lastFilter.trim().length > 0
+      const isEmpty = value.trim().length === 0
+
+      state.filter = value
+      lastFilter = value
+
+      if (wasNonEmpty && isEmpty) {
+        refresh().catch(err => toast(errorMessage(err)))
+        return
+      }
+
       render()
     }, 250)
   }
@@ -347,7 +482,7 @@ function bindEvents() {
     dropdownMenu.classList.remove('show')
     showConfirm({
       title: '关于 Z-Systemizer',
-      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.0\n基于 KernelSU API 构建。',
+      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.2\n基于 KernelSU API 构建。',
       cancelText: '关闭',
       confirmText: '确定'
     })

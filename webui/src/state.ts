@@ -33,6 +33,22 @@ export function buildUiApps(
     })
 }
 
+export function mergePendingState(nextApps: UiAppEntry[], oldApps: UiAppEntry[]): UiAppEntry[] {
+  const oldMap = new Map(oldApps.map(app => [app.packageName, app]))
+
+  return nextApps.map(next => {
+    const old = oldMap.get(next.packageName)
+    if (!old || old.pending === 'none') return next
+
+    return {
+      ...next,
+      pending: old.pending,
+      busy: false,
+      systemized: old.systemized,
+    }
+  })
+}
+
 export function hasPending(apps: UiAppEntry[]): boolean {
   return apps.some(app => app.pending !== 'none')
 }
