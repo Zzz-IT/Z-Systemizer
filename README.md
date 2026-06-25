@@ -177,12 +177,17 @@ zip -r ../out/Z-Systemizer-v0.1.0.zip .
 
 1. 确认设备已安装 KernelSU。
 2. 安装兼容的系统覆盖模块，例如 meta-overlayfs 一类模块。
-3. 刷入 `Z-Systemizer-v0.1.0.zip`。
-4. 安装 Android 管理端 APK。
-5. 打开 Z Systemizer，点击 `Refresh`。
-6. 搜索或选择目标应用，点击 `SYS`。
-7. 重启设备后生效。
-8. 如需移除，点击该应用的 `Unlock`，再点击 `Remove`，然后重启。
+3. 下载 `Z-Systemizer-v1.0.1.zip`。
+4. 在 KernelSU 管理器中刷入该模块。
+5. 重启设备。
+6. 重启后系统会自动扫描模块内置的 Z Systemizer 管理端。
+7. 桌面出现 `Z Systemizer` 后打开。
+8. 点击 `Refresh`。
+9. 搜索或选择目标应用，点击 `SYS`。
+10. 再次重启后生效。
+11. 如需移除，点击该应用的 `Unlock`，再点击 `Remove`，然后重启。
+
+不需要手动安装 APK。
 
 ## 状态说明
 

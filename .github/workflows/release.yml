@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build release artifacts
+  release:
+    name: Build and publish module
     runs-on: ubuntu-latest
 
     steps:
@@ -33,8 +33,8 @@ jobs:
       - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager --list | grep -E "platforms;android-(36|37|37.0)" || true
-          sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+          sdkmanager --list --channel=3 | grep -E "platforms;android-(36|37|37.0)" || true
+          sdkmanager --channel=3 "platforms;android-37.0" "build-tools;37.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -49,14 +49,32 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 
+      - name: Decode Android keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/z-systemizer-release.jks"
+
       - name: Check Rust CLI
         run: |
           cargo fmt --manifest-path cli/Cargo.toml -- --check
           cargo clippy --manifest-path cli/Cargo.toml -- -D warnings
           cargo check --manifest-path cli/Cargo.toml
 
-      - name: Build Android app
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Build signed manager APK
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/z-systemizer-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Verify APK signature
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          test -f "$APK"
+          "$APKSIGNER" verify --verbose "$APK"
 
       - name: Build Rust CLI arm64
         run: |
@@ -64,53 +82,61 @@ jobs:
           cd cli
           cargo ndk -t arm64-v8a build --release
 
-      - name: Package artifacts
+      - name: Assemble module payload
         run: |
-          mkdir -p out module-template/bin/arm64-v8a
-          cp app/build/outputs/apk/debug/app-debug.apk "out/Z-Systemizer-manager-${{ steps.version.outputs.VERSION }}-debug.apk"
-          cp cli/target/aarch64-linux-android/release/systemizer module-template/bin/arm64-v8a/systemizer
-          cd module-template
-          zip -r "../out/Z-Systemizer-${{ steps.version.outputs.VERSION }}.zip" .
+          VERSION="${{ steps.version.outputs.VERSION }}"
+
+          rm -rf out
+          mkdir -p out
+          mkdir -p module-template/bin/arm64-v8a
+          mkdir -p module-template/system/app/ZSystemizerManager
+          mkdir -p module-template/checksums
+          mkdir -p module-template/state
+
+          cp cli/target/aarch64-linux-android/release/systemizer \
+            module-template/bin/arm64-v8a/systemizer
+
+          cp app/build/outputs/apk/release/app-release.apk \
+            module-template/system/app/ZSystemizerManager/ZSystemizerManager.apk
+
+          chmod 0755 module-template/bin/arm64-v8a/systemizer
+          chmod 0644 module-template/system/app/ZSystemizerManager/ZSystemizerManager.apk
+
+          (
+            cd module-template
+            sha256sum bin/arm64-v8a/systemizer > checksums/SHA256SUMS
+            sha256sum system/app/ZSystemizerManager/ZSystemizerManager.apk >> checksums/SHA256SUMS
+            sha256sum bin/arm64-v8a/systemizer > checksums/systemizer.sha256
+            sha256sum system/app/ZSystemizerManager/ZSystemizerManager.apk > checksums/ZSystemizerManager.apk.sha256
+          )
+
+          (
+            cd module-template
+            zip -r "../out/Z-Systemizer-${VERSION}.zip" .
+          )
 
       - name: Verify module package
         run: |
-          test -f "out/Z-Systemizer-${{ steps.version.outputs.VERSION }}.zip"
-          unzip -l "out/Z-Systemizer-${{ steps.version.outputs.VERSION }}.zip" | grep 'bin/arm64-v8a/systemizer'
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ZIP="out/Z-Systemizer-${VERSION}.zip"
 
-          if unzip -l "out/Z-Systemizer-${{ steps.version.outputs.VERSION }}.zip" | grep -q 'system/priv-app'; then
+          test -f "$ZIP"
+
+          unzip -l "$ZIP" | grep 'module.prop'
+          unzip -l "$ZIP" | grep 'customize.sh'
+          unzip -l "$ZIP" | grep 'bin/arm64-v8a/systemizer'
+          unzip -l "$ZIP" | grep 'system/app/ZSystemizerManager/ZSystemizerManager.apk'
+          unzip -l "$ZIP" | grep 'checksums/SHA256SUMS'
+
+          if unzip -l "$ZIP" | grep -q 'system/priv-app'; then
             echo 'priv-app path must not be packaged'
             exit 1
           fi
 
-          if ! unzip -l "out/Z-Systemizer-${{ steps.version.outputs.VERSION }}.zip" | grep -q 'system/app'; then
-            echo 'system/app path missing from package'
-            exit 1
-          fi
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Z-Systemizer-${{ steps.version.outputs.VERSION }}
-          path: out/*
-
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: Z-Systemizer-${{ steps.version.outputs.VERSION }}
-          path: out
+      - name: Generate release checksums
+        run: |
+          cd out
+          sha256sum * > SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
