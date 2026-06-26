@@ -79,6 +79,18 @@ fn state_file_path() -> PathBuf {
     moddir().join("state").join("systemizer-state.json")
 }
 
+fn module_prop_path() -> PathBuf {
+    moddir().join("module.prop")
+}
+
+fn sysconfig_dir() -> PathBuf {
+    moddir().join("system").join("etc").join("sysconfig")
+}
+
+fn keepalive_sysconfig_path() -> PathBuf {
+    sysconfig_dir().join("z-systemizer-aosp-keepalive.xml")
+}
+
 fn read_state() -> Result<StateFile, String> {
     let path = state_file_path();
 
@@ -295,7 +307,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
                 record.pending_boot_id = None;
 
                 write_state_atomic(&mut state)?;
-                update_description(&state);
+                after_state_changed(&state);
 
                 println!(
                     "ok=true\npackage={}\ntarget={}\nrepaired=true\nreboot_required=false",
@@ -314,7 +326,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
             record.pending_boot_id = None;
 
             write_state_atomic(&mut state)?;
-            update_description(&state);
+            after_state_changed(&state);
 
             println!(
                 "ok=true\npackage={}\ntarget={}\nrestored=true\nreboot_required=false",
@@ -367,7 +379,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     record.pending_boot_id = Some(get_boot_id());
 
     write_state_atomic(&mut state)?;
-    update_description(&state);
+    after_state_changed(&state);
 
     println!(
         "ok=true\npackage={}\ntarget={}\nreboot_required=true",
@@ -401,7 +413,7 @@ fn unsystemize(pkg: &str) -> Result<(), String> {
         }
 
         write_state_atomic(&mut state)?;
-        update_description(&state);
+        after_state_changed(&state);
         println!(
             "ok=true\npackage={}\nremoved=true\nreboot_required=true",
             pkg
@@ -535,7 +547,7 @@ fn reconcile(phase: &str) -> Result<(), String> {
     }
 
     if phase != "post-fs-data" {
-        update_description(&state);
+        after_state_changed(&state);
         println!("reconcile phase={} completed.", phase);
     }
 
@@ -619,6 +631,17 @@ fn diagnose() -> Result<(), String> {
         pending_remove_system_exists
     );
 
+    println!(
+        "keepalive_sysconfig_exists={}",
+        keepalive_sysconfig_path().is_file()
+    );
+    let keepalive_count = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
+        .count();
+    println!("keepalive_packages={}", keepalive_count);
+
     Ok(())
 }
 
@@ -651,17 +674,119 @@ fn build_description(state: &StateFile) -> String {
     }
 }
 
+fn update_module_prop_description(desc: &str) -> Result<(), String> {
+    let path = module_prop_path();
+
+    if !path.exists() {
+        return Err(format!("module.prop does not exist at {}", path.display()));
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read module.prop: {}", e))?;
+
+    let mut found = false;
+    let mut lines = Vec::new();
+
+    for line in content.lines() {
+        if line.starts_with("description=") {
+            lines.push(format!("description={}", desc));
+            found = true;
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+
+    if !found {
+        lines.push(format!("description={}", desc));
+    }
+
+    let tmp = path.with_extension(format!("prop.{}.tmp", id()));
+    let next = format!("{}\n", lines.join("\n"));
+
+    fs::write(&tmp, next)
+        .map_err(|e| format!("failed to write module.prop tmp: {}", e))?;
+
+    fs::rename(&tmp, &path)
+        .map_err(|e| format!("failed to replace module.prop: {}", e))?;
+
+    set_file_perm(&path, 0o644)?;
+
+    Ok(())
+}
+
 fn update_description(state: &StateFile) {
     let desc = build_description(state);
 
-    let _ = Command::new("ksud")
-        .args(["module", "config", "set", "override.description", &desc])
-        .status();
+    if let Err(e) = update_module_prop_description(&desc) {
+        eprintln!("warn=failed_to_update_module_prop_description");
+        eprintln!("description_error={}", e);
+    }
 }
 
-fn refresh_description() -> Result<(), String> {
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
+    let dir = sysconfig_dir();
+    create_dir(&dir)?;
+
+    let mut packages: Vec<String> = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
+        .map(|r| r.package.clone())
+        .collect();
+
+    packages.sort();
+    packages.dedup();
+
+    let path = keepalive_sysconfig_path();
+
+    if packages.is_empty() {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<config>\n");
+
+    for pkg in packages {
+        let pkg = xml_escape(&pkg);
+        xml.push_str(&format!("    <allow-in-power-save package=\"{}\" />\n", pkg));
+        xml.push_str(&format!("    <allow-in-power-save-except-idle package=\"{}\" />\n", pkg));
+        xml.push_str(&format!("    <allow-in-data-usage-save package=\"{}\" />\n", pkg));
+    }
+
+    xml.push_str("</config>\n");
+
+    let tmp = path.with_extension(format!("xml.{}.tmp", id()));
+    fs::write(&tmp, xml)
+        .map_err(|e| format!("failed to write keepalive sysconfig tmp: {}", e))?;
+    fs::rename(&tmp, &path)
+        .map_err(|e| format!("failed to replace keepalive sysconfig: {}", e))?;
+
+    set_file_perm(&path, 0o644)?;
+
+    Ok(())
+}
+
+fn after_state_changed(state: &StateFile) {
+    update_description(state);
+
+    if let Err(e) = update_aosp_keepalive_sysconfig(state) {
+        eprintln!("warn=failed_to_update_aosp_keepalive_sysconfig");
+        eprintln!("keepalive_error={}", e);
+    }
+}
+
+fn refresh_derived() -> Result<(), String> {
     let state = read_state()?;
-    update_description(&state);
+    after_state_changed(&state);
     println!("ok=true");
     Ok(())
 }
@@ -705,7 +830,7 @@ fn usage() {
     eprintln!("  systemizer unsystemize <package>");
     eprintln!("  systemizer state-json");
     eprintln!("  systemizer reconcile --phase <install|post-fs-data|manual>");
-    eprintln!("  systemizer refresh-description");
+    eprintln!("  systemizer refresh-derived");
 }
 
 fn run() -> Result<(), String> {
@@ -750,7 +875,8 @@ fn run() -> Result<(), String> {
             }
             unsystemize(&args[2])
         }
-        "refresh-description" => refresh_description(),
+        "refresh-description" => refresh_derived(),
+        "refresh-derived" => refresh_derived(),
         _ => {
             usage();
             Err(format!("unknown command: {}", args[1]))

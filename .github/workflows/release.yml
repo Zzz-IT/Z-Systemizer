@@ -103,24 +103,37 @@ jobs:
 
           test -f "$ZIP"
 
+          # 基本文件存在性
           unzip -l "$ZIP" | grep 'module.prop'
           unzip -l "$ZIP" | grep 'customize.sh'
           unzip -l "$ZIP" | grep 'post-fs-data.sh'
           unzip -l "$ZIP" | grep 'service.sh'
           unzip -l "$ZIP" | grep 'bin/arm64-v8a/systemizer'
           unzip -l "$ZIP" | grep 'webroot/index.html'
+
+          # HTML 关键元素
           unzip -p "$ZIP" webroot/index.html | grep -q 'app-list'
           unzip -p "$ZIP" webroot/index.html | grep -q 'empty-state'
           unzip -p "$ZIP" webroot/index.html | grep -q 'status-line'
           unzip -p "$ZIP" webroot/index.html | grep -q 'reboot-fab'
           unzip -p "$ZIP" webroot/index.html | grep -q 'loading-state'
+
+          # JS 关键特性
           unzip -p "$ZIP" | grep -q 'IntersectionObserver'
           unzip -p "$ZIP" | grep -q 'ksu://icon'
           unzip -p "$ZIP" | grep -q 'icon-loader'
           unzip -p "$ZIP" | grep -q 'icon-fallback'
-          unzip -p "$ZIP" | grep -q 'refresh-description'
           unzip -p "$ZIP" | grep -q '\.hidden'
           unzip -p "$ZIP" | grep -q '\.empty-state'
+
+          # service.sh 调用 refresh-derived
+          unzip -p "$ZIP" service.sh | grep -q 'refresh-derived'
+
+          # HTML 中不能有 loading-card
+          if unzip -p "$ZIP" webroot/index.html | grep -q 'loading-card'; then
+            echo "HTML must not contain loading-card elements"
+            exit 1
+          fi
 
           if unzip -l "$ZIP" | grep -q 'system/priv-app'; then
             echo 'priv-app path must not be packaged'

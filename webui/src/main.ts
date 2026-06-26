@@ -100,7 +100,7 @@ function visibleApps(): UiAppEntry[] {
 }
 
 const INITIAL_ICON_LIMIT = 16
-const INITIAL_ICON_TIMEOUT_MS = 800
+const INITIAL_ICON_TIMEOUT_MS = 650
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -272,7 +272,10 @@ function createCardElement(app: UiAppEntry, index = 0): HTMLElement {
   wrapper.innerHTML = `
     <article
       class="app-card enter"
-      style="--enter-delay: ${Math.min(index * 18, 180)}ms"
+      style="
+        --enter-delay: ${Math.min(index * 26, 260)}ms;
+        --enter-index: ${index};
+      "
       data-package="${escapeHtml(app.packageName)}"
     >
       ${renderCardInner(app)}

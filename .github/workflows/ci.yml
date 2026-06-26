@@ -33,6 +33,29 @@ jobs:
       - name: Check
         run: cargo check --manifest-path cli/Cargo.toml
 
+      - name: Verify CLI architecture
+        run: |
+          # module.prop 原子更新函数必须存在
+          grep -q 'fn update_module_prop_description' cli/src/main.rs
+          grep -q 'fn module_prop_path' cli/src/main.rs
+
+          # 不应再使用 ksud override.description
+          if grep -q 'override\.description' cli/src/main.rs; then
+            echo "CLI must not use ksud override.description"
+            exit 1
+          fi
+
+          # AOSP Keepalive XML 生成代码必须存在
+          grep -q 'fn update_aosp_keepalive_sysconfig' cli/src/main.rs
+          grep -q 'keepalive_sysconfig_path' cli/src/main.rs
+          grep -q 'allow-in-power-save' cli/src/main.rs
+
+          # refresh-derived 命令必须存在
+          grep -q 'refresh-derived' cli/src/main.rs
+
+          # after_state_changed 统一触发器
+          grep -q 'fn after_state_changed' cli/src/main.rs
+
   webui:
     name: WebUI
     runs-on: ubuntu-latest
@@ -65,9 +88,20 @@ jobs:
           grep -R 'ksu://icon' webui/dist/assets
           grep -R 'icon-loader' webui/dist/assets
           grep -R 'icon-fallback' webui/dist/assets
-          grep -R 'refresh-description' webui/dist/assets
-          grep -R '\.hidden' webui/dist/assets
-          grep -R '\.empty-state' webui/dist/assets
+          grep -R '\\.hidden' webui/dist/assets
+          grep -R '\\.empty-state' webui/dist/assets
+
+          # loading-card 和 skeleton-shimmer 已移除，不得出现在 HTML 中
+          if grep -q 'loading-card' webui/dist/index.html; then
+            echo "HTML must not contain loading-card elements"
+            exit 1
+          fi
+          # 样式中保留 skeleton-shimmer 用于图标加载器，但 HTML 中不含 .loading-card
+          # 无 border: 1px solid var(--divider) 存在于卡片组件
+          if grep -R 'border:.*1px solid var(--divider)' webui/dist/assets; then
+            echo "Card components must not have border: 1px solid var(--divider)"
+            exit 1
+          fi
           if grep -R "https://" webui/dist; then
             echo "WebUI should not depend on remote assets"
             exit 1
@@ -88,3 +122,29 @@ jobs:
             exit 1
           fi
 
+  scripts:
+    name: Module Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify service.sh
+        run: |
+          test -f module-template/service.sh
+          grep -q 'refresh-derived' module-template/service.sh
+          # service.sh 不应该调用旧的 refresh-description
+          # (兼容别名在 CLI 中存在，但脚本应使用新命名)
+
+      - name: Verify post-fs-data.sh
+        run: |
+          test -f module-template/post-fs-data.sh
+
+      - name: Verify customize.sh
+        run: |
+          test -f module-template/customize.sh
+
+      - name: Verify module.prop
+        run: |
+          test -f module-template/module.prop
+          grep -q 'description=' module-template/module.prop
