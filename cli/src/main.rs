@@ -696,8 +696,8 @@ fn update_module_prop_description(desc: &str) -> Result<(), String> {
         return Err(format!("module.prop does not exist at {}", path.display()));
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read module.prop: {}", e))?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read module.prop: {}", e))?;
 
     let mut found = false;
     let mut lines = Vec::new();
@@ -718,11 +718,9 @@ fn update_module_prop_description(desc: &str) -> Result<(), String> {
     let tmp = path.with_extension(format!("prop.{}.tmp", id()));
     let next = format!("{}\n", lines.join("\n"));
 
-    fs::write(&tmp, next)
-        .map_err(|e| format!("failed to write module.prop tmp: {}", e))?;
+    fs::write(&tmp, next).map_err(|e| format!("failed to write module.prop tmp: {}", e))?;
 
-    fs::rename(&tmp, &path)
-        .map_err(|e| format!("failed to replace module.prop: {}", e))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("failed to replace module.prop: {}", e))?;
 
     set_file_perm(&path, 0o644)?;
 
@@ -798,10 +796,8 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
     xml.push_str("</config>\n");
 
     let tmp = path.with_extension(format!("xml.{}.tmp", id()));
-    fs::write(&tmp, xml)
-        .map_err(|e| format!("failed to write keepalive sysconfig tmp: {}", e))?;
-    fs::rename(&tmp, &path)
-        .map_err(|e| format!("failed to replace keepalive sysconfig: {}", e))?;
+    fs::write(&tmp, xml).map_err(|e| format!("failed to write keepalive sysconfig tmp: {}", e))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("failed to replace keepalive sysconfig: {}", e))?;
 
     set_file_perm(&path, 0o644)?;
 
