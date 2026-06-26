@@ -186,36 +186,36 @@ function loadIcon(pkg: string, scope: HTMLElement) {
     return
   }
 
-  let done = false
+  let settled = false
 
-  const finish = (ok: boolean) => {
-    if (done) return
-    done = true
-
+  const timer = setTimeout(() => {
+    if (settled) return
     if (loader) loader.style.display = 'none'
-
-    if (ok) {
-      img.classList.add('is-loaded')
-      img.classList.remove('is-error')
-      loadedIconPackages.add(pkg)
-      scope.dataset.iconLoaded = '1'
-    } else {
-      img.classList.add('is-error')
-      img.classList.remove('is-loaded')
-      if (fallback) fallback.classList.add('visible')
-    }
-  }
-
-  const timer = setTimeout(() => finish(false), 1200)
+    if (fallback) fallback.classList.add('visible')
+  }, 2000)
 
   img.onload = () => {
     clearTimeout(timer)
-    finish(true)
+
+    if (loader) loader.style.display = 'none'
+    if (fallback) fallback.classList.remove('visible')
+
+    img.classList.add('is-loaded')
+    img.classList.remove('is-error')
+    loadedIconPackages.add(pkg)
+    scope.dataset.iconLoaded = '1'
+    settled = true
   }
 
   img.onerror = () => {
     clearTimeout(timer)
-    finish(false)
+    if (settled) return
+
+    if (loader) loader.style.display = 'none'
+    img.classList.add('is-error')
+    img.classList.remove('is-loaded')
+    if (fallback) fallback.classList.add('visible')
+    settled = true
   }
 
   img.src = `ksu://icon/${pkg}`
@@ -478,10 +478,6 @@ function showFatalError(e: unknown) {
   const message = errorMessage(e)
 
   const statusLine = document.querySelector<HTMLElement>('.status-line')
-  if (statusLine) {
-    statusLine.textContent = `加载失败：${message}`
-  }
-
   const loading = document.querySelector<HTMLElement>('.loading-state')
   if (loading) {
     loading.classList.add('hidden')
@@ -494,9 +490,17 @@ function showFatalError(e: unknown) {
   }
 
   const empty = document.querySelector<HTMLElement>('.empty-state')
+  const hasOldCards = renderedCards.size > 0
+
   if (empty) {
-    empty.classList.remove('hidden')
+    empty.classList.toggle('hidden', hasOldCards)
     empty.textContent = message
+  }
+
+  if (statusLine) {
+    statusLine.textContent = hasOldCards
+      ? `刷新失败，已保留上次列表：${message}`
+      : `加载失败：${message}`
   }
 
   toast(message)
@@ -731,7 +735,7 @@ function bindEvents() {
     dropdownMenu.classList.remove('show')
     showConfirm({
       title: '关于 Z-Systemizer',
-      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.4\n持久状态与自动同步',
+      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.5\n持久状态与自动同步',
       cancelText: '关闭',
       confirmText: '确定'
     })
