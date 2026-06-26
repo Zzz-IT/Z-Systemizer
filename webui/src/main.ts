@@ -5,7 +5,7 @@ import {
   unsystemize,
   diagnose,
   rebootDevice,
-  refreshDescription,
+  refreshDerived,
   type SystemizerState
 } from './api'
 import { buildUiApps, hasPending, mergeBusyState, type UiAppEntry } from './state'
@@ -100,7 +100,7 @@ function visibleApps(): UiAppEntry[] {
 }
 
 const INITIAL_ICON_LIMIT = 16
-const INITIAL_ICON_TIMEOUT_MS = 650
+const INITIAL_ICON_TIMEOUT_MS = 900
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -232,6 +232,8 @@ function resetVisibleIcons() {
     delete wrap.dataset.iconLoaded
 
     if (img) {
+      img.onload = null
+      img.onerror = null
       img.removeAttribute('src')
       img.classList.remove('is-loaded', 'is-error')
       img.style.display = ''
@@ -641,7 +643,7 @@ async function refresh() {
 
     render()
 
-    refreshDescription().catch(() => {})
+    refreshDerived().catch(() => {})
   } catch (e) {
     showFatalError(e)
   } finally {

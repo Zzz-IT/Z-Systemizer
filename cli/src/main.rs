@@ -642,6 +642,21 @@ fn diagnose() -> Result<(), String> {
         .count();
     println!("keepalive_packages={}", keepalive_count);
 
+    let expected_description = build_description(&state);
+    let actual_description = read_module_prop_description();
+
+    println!("module_prop_exists={}", module_prop_path().is_file());
+    println!(
+        "module_prop_description_synced={}",
+        actual_description.as_deref() == Some(expected_description.as_str())
+    );
+
+    if let Some(desc) = actual_description {
+        println!("module_prop_description={}", desc);
+    }
+
+    println!("module_prop_description_expected={}", expected_description);
+
     Ok(())
 }
 
@@ -723,6 +738,18 @@ fn update_description(state: &StateFile) {
     }
 }
 
+fn read_module_prop_description() -> Option<String> {
+    let content = fs::read_to_string(module_prop_path()).ok()?;
+
+    for line in content.lines() {
+        if let Some(desc) = line.strip_prefix("description=") {
+            return Some(desc.to_string());
+        }
+    }
+
+    None
+}
+
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -757,9 +784,15 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
 
     for pkg in packages {
         let pkg = xml_escape(&pkg);
-        xml.push_str(&format!("    <allow-in-power-save package=\"{}\" />\n", pkg));
-        xml.push_str(&format!("    <allow-in-power-save-except-idle package=\"{}\" />\n", pkg));
-        xml.push_str(&format!("    <allow-in-data-usage-save package=\"{}\" />\n", pkg));
+
+        xml.push_str(&format!(
+            "    <allow-in-power-save package=\"{}\" />\n",
+            pkg
+        ));
+        xml.push_str(&format!(
+            "    <allow-in-power-save-except-idle package=\"{}\" />\n",
+            pkg
+        ));
     }
 
     xml.push_str("</config>\n");

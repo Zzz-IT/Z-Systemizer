@@ -48,7 +48,14 @@ jobs:
           # AOSP Keepalive XML 生成代码必须存在
           grep -q 'fn update_aosp_keepalive_sysconfig' cli/src/main.rs
           grep -q 'keepalive_sysconfig_path' cli/src/main.rs
-          grep -q 'allow-in-power-save' cli/src/main.rs
+          grep -q 'allow-in-power-save package' cli/src/main.rs
+          grep -q 'allow-in-power-save-except-idle package' cli/src/main.rs
+
+          # 不应使用不确定的 sysconfig 标签
+          if grep -q 'allow-in-data-usage-save' cli/src/main.rs; then
+            echo "Unsupported sysconfig tag allow-in-data-usage-save must not be used"
+            exit 1
+          fi
 
           # refresh-derived 命令必须存在
           grep -q 'refresh-derived' cli/src/main.rs
@@ -88,8 +95,8 @@ jobs:
           grep -R 'ksu://icon' webui/dist/assets
           grep -R 'icon-loader' webui/dist/assets
           grep -R 'icon-fallback' webui/dist/assets
-          grep -R '\\.hidden' webui/dist/assets
-          grep -R '\\.empty-state' webui/dist/assets
+          grep -R '\.hidden' webui/dist/assets
+          grep -R '\.empty-state' webui/dist/assets
 
           # loading-card 和 skeleton-shimmer 已移除，不得出现在 HTML 中
           if grep -q 'loading-card' webui/dist/index.html; then
@@ -119,6 +126,14 @@ jobs:
         run: |
           if find . -name "*.apk" | grep -q .; then
             echo "APK files must not be committed"
+            exit 1
+          fi
+
+      - name: Verify WebUI uses refresh-derived
+        run: |
+          grep -R 'refresh-derived' webui/src
+          if grep -R 'refresh-description' webui/src; then
+            echo "WebUI should call refresh-derived, not refresh-description"
             exit 1
           fi
 

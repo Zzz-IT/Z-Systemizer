@@ -107,6 +107,6 @@ export async function rebootDevice(): Promise<void> {
   await shell('reboot')
 }
 
-export async function refreshDescription(): Promise<void> {
-  await shell(`${CLI} refresh-description`)
+export async function refreshDerived(): Promise<void> {
+  await shell(`${CLI} refresh-derived`)
 }
