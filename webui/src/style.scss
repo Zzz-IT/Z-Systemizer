@@ -155,7 +155,7 @@ button {
   width: 100%;
   padding: 12px 14px;
   border: 0;
-  background: transparent;
+  background: var(--surface-2);
   color: var(--text);
   font-size: 15px;
   text-align: left;
@@ -493,8 +493,21 @@ button {
 }
 
 .switch.is-busy {
-  opacity: 0.6;
   pointer-events: none;
+  background: var(--surface-pressed);
+  box-shadow: inset 0 0 0 1px var(--divider), var(--shadow-button);
+}
+
+.switch.is-busy.is-on {
+  background: var(--accent);
+}
+
+.switch.is-busy::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  border: 2px solid var(--divider);
 }
 
 .switch.is-busy .switch-thumb {

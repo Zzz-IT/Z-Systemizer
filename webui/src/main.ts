@@ -17,7 +17,6 @@ const state = {
   onlySystemized: false,
   globalBusy: false,
   rawState: null as SystemizerState | null,
-  firstPaintReady: false,
 }
 
 const renderedCards = new Map<string, HTMLElement>()
@@ -138,7 +137,10 @@ async function preloadInitialIcons(apps: UiAppEntry[]): Promise<void> {
   const first = apps.slice(0, INITIAL_ICON_LIMIT)
 
   await Promise.race([
-    Promise.allSettled(first.map(app => preloadIcon(app.packageName))).then(() => {}),
+    Promise.allSettled(first.map(async app => {
+      const ok = await preloadIcon(app.packageName)
+      if (ok) loadedIconPackages.add(app.packageName)
+    })).then(() => {}),
     delay(INITIAL_ICON_TIMEOUT_MS),
   ])
 }
@@ -166,6 +168,7 @@ function setupIconObserver() {
   })
 
   document.querySelectorAll<HTMLElement>('.icon-wrap').forEach(wrap => {
+    if (wrap.dataset.iconLoaded === '1') return
     iconObserver?.observe(wrap)
   })
 }
@@ -176,6 +179,12 @@ function loadIcon(pkg: string, scope: HTMLElement) {
   const fallback = scope.querySelector<HTMLElement>('.icon-fallback')
 
   if (!img) return
+
+  if (loadedIconPackages.has(pkg) && img.classList.contains('is-loaded')) {
+    if (loader) loader.style.display = 'none'
+    scope.dataset.iconLoaded = '1'
+    return
+  }
 
   let done = false
 
@@ -189,6 +198,7 @@ function loadIcon(pkg: string, scope: HTMLElement) {
       img.classList.add('is-loaded')
       img.classList.remove('is-error')
       loadedIconPackages.add(pkg)
+      scope.dataset.iconLoaded = '1'
     } else {
       img.classList.add('is-error')
       img.classList.remove('is-loaded')
@@ -218,6 +228,8 @@ function resetVisibleIcons() {
     const img = wrap.querySelector<HTMLImageElement>('.app-icon')
     const loader = wrap.querySelector<HTMLElement>('.icon-loader')
     const fallback = wrap.querySelector<HTMLElement>('.icon-fallback')
+
+    delete wrap.dataset.iconLoaded
 
     if (img) {
       img.removeAttribute('src')
@@ -470,6 +482,17 @@ function showFatalError(e: unknown) {
     statusLine.textContent = `加载失败：${message}`
   }
 
+  const loading = document.querySelector<HTMLElement>('.loading-state')
+  if (loading) {
+    loading.classList.add('hidden')
+  }
+
+  const list = document.querySelector<HTMLElement>('.app-list')
+  if (list) {
+    list.classList.remove('is-loading')
+    list.classList.add('is-ready')
+  }
+
   const empty = document.querySelector<HTMLElement>('.empty-state')
   if (empty) {
     empty.classList.remove('hidden')
@@ -582,7 +605,6 @@ async function refresh() {
   if (state.globalBusy) return
 
   state.globalBusy = true
-  state.firstPaintReady = false
 
   showAppLoading()
 
@@ -605,8 +627,6 @@ async function refresh() {
     const firstScreenApps = visibleApps()
 
     await preloadInitialIcons(firstScreenApps)
-
-    state.firstPaintReady = true
 
     if (statusLine) {
       statusLine.textContent = `已加载 ${state.apps.length} 个应用`
