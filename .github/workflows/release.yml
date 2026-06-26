@@ -86,6 +86,7 @@ jobs:
           test -f module-template/module.prop
           test -f module-template/customize.sh
           test -f module-template/post-fs-data.sh
+          test -f module-template/service.sh
           test -f module-template/webroot/index.html
 
           (
@@ -105,12 +106,19 @@ jobs:
           unzip -l "$ZIP" | grep 'module.prop'
           unzip -l "$ZIP" | grep 'customize.sh'
           unzip -l "$ZIP" | grep 'post-fs-data.sh'
+          unzip -l "$ZIP" | grep 'service.sh'
           unzip -l "$ZIP" | grep 'bin/arm64-v8a/systemizer'
           unzip -l "$ZIP" | grep 'webroot/index.html'
           unzip -p "$ZIP" webroot/index.html | grep -q 'app-list'
           unzip -p "$ZIP" webroot/index.html | grep -q 'empty-state'
           unzip -p "$ZIP" webroot/index.html | grep -q 'status-line'
           unzip -p "$ZIP" webroot/index.html | grep -q 'reboot-fab'
+          unzip -p "$ZIP" webroot/index.html | grep -q 'loading-state'
+          unzip -p "$ZIP" | grep -q 'IntersectionObserver'
+          unzip -p "$ZIP" | grep -q 'ksu://icon'
+          unzip -p "$ZIP" | grep -q 'icon-loader'
+          unzip -p "$ZIP" | grep -q 'icon-fallback'
+          unzip -p "$ZIP" | grep -q 'refresh-description'
           unzip -p "$ZIP" | grep -q '\.hidden'
           unzip -p "$ZIP" | grep -q '\.empty-state'
 

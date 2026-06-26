@@ -1,13 +1,12 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Z Systemizer</title>
 </head>
+
 <body>
   <div class="page">
     <header class="app-header">
@@ -21,13 +20,13 @@
           <button class="icon-button more-button">更多</button>
           <div class="dropdown-menu">
             <label class="menu-item toggle-item">
-            <input type="checkbox" id="toggle-only-sys">
-            <span>仅看系统化/待处理</span>
-          </label>
-          <div class="menu-divider"></div>
-          <button class="menu-item" id="menu-diagnose">运行诊断</button>
-          <button class="menu-item" id="menu-clear-icons">清除图标缓存</button>
-          <button class="menu-item" id="menu-about">关于</button>
+              <input type="checkbox" id="toggle-only-sys">
+              <span>仅看系统化/待处理</span>
+            </label>
+            <div class="menu-divider"></div>
+            <button class="menu-item" id="menu-diagnose">运行诊断</button>
+            <button class="menu-item" id="menu-clear-icons">清除图标缓存</button>
+            <button class="menu-item" id="menu-about">关于</button>
           </div>
         </div>
       </div>
@@ -54,19 +53,29 @@
 
     <div class="status-line">正在加载应用列表...</div>
 
+    <section class="loading-state">
+      <div class="loading-card"></div>
+      <div class="loading-card"></div>
+      <div class="loading-card"></div>
+      <div class="loading-card"></div>
+      <div class="loading-card"></div>
+    </section>
+
     <section class="empty-state hidden">
       暂无可显示应用
     </section>
 
-    <section class="app-list" aria-live="polite"></section>
+    <section class="app-list is-loading" aria-live="polite"></section>
   </div>
 
   <button class="reboot-fab" aria-label="重启设备">
     <svg class="reboot-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm5.66 3.76a1 1 0 0 1 1.42 0A9 9 0 1 1 4.92 6.76a1 1 0 1 1 1.42 1.41A7 7 0 1 0 17.66 8.17a1 1 0 0 1 0-1.41Z"/>
+      <path
+        d="M12 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm5.66 3.76a1 1 0 0 1 1.42 0A9 9 0 1 1 4.92 6.76a1 1 0 1 1 1.42 1.41A7 7 0 1 0 17.66 8.17a1 1 0 0 1 0-1.41Z" />
     </svg>
   </button>
 
   <script type="module" src="/src/main.ts"></script>
 </body>
+
 </html>

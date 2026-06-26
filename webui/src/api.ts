@@ -106,3 +106,7 @@ export async function unsystemize(pkg: string): Promise<void> {
 export async function rebootDevice(): Promise<void> {
   await shell('reboot')
 }
+
+export async function refreshDescription(): Promise<void> {
+  await shell(`${CLI} refresh-description`)
+}

@@ -2,9 +2,9 @@
   color-scheme: light dark;
 
   --bg: #f6f6f7;
-  --surface: rgba(255, 255, 255, 0.88);
-  --surface-2: rgba(246, 246, 247, 0.92);
-  --surface-pressed: rgba(0, 0, 0, 0.045);
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --surface-pressed: #e9e9ef;
 
   --text: #171717;
   --muted: #77777d;
@@ -13,8 +13,8 @@
   --accent: #34c759;
   --danger: #ff3b30;
 
-  --switch-off: rgba(120, 120, 128, 0.28);
-  --divider: rgba(0, 0, 0, 0.06);
+  --switch-off: #d1d1d6;
+  --divider: #e5e5ea;
 
   --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.08);
   --shadow-button: 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -24,16 +24,16 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0f1014;
-    --surface: rgba(28, 29, 34, 0.92);
-    --surface-2: rgba(38, 39, 44, 0.9);
-    --surface-pressed: rgba(255, 255, 255, 0.07);
+    --surface: #1c1d22;
+    --surface-2: #26272c;
+    --surface-pressed: #32333a;
 
     --text: #f5f5f7;
     --muted: #a1a1aa;
     --secondary: #8e8e93;
 
-    --switch-off: rgba(255, 255, 255, 0.18);
-    --divider: rgba(255, 255, 255, 0.08);
+    --switch-off: #3a3a40;
+    --divider: #34343a;
 
     --shadow-soft: 0 10px 28px rgba(0, 0, 0, 0.36);
     --shadow-button: 0 6px 18px rgba(0, 0, 0, 0.32);
@@ -105,12 +105,12 @@ button {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-button);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, background 0.15s ease;
+  cursor: pointer;
 }
 
 .icon-button:active {
+  background: var(--surface-pressed);
   transform: scale(0.97);
 }
 
@@ -124,8 +124,7 @@ button {
   right: 0;
   width: 180px;
   background: var(--surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--divider);
   border-radius: 16px;
   box-shadow: var(--shadow-soft);
   padding: 6px;
@@ -161,11 +160,12 @@ button {
   font-size: 15px;
   text-align: left;
   border-radius: 10px;
-  transition: background 0.15s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.045);
+  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  cursor: pointer;
 
   &:active {
-    background: var(--surface-2);
+    background: var(--surface-pressed);
     transform: scale(0.97);
   }
 
@@ -177,15 +177,20 @@ button {
   }
 }
 
+.menu-divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 4px 8px;
+}
+
 .summary-card,
 .search-card {
   border-radius: 24px;
   background: var(--surface);
+  border: 1px solid var(--divider);
   box-shadow: var(--shadow-soft);
   padding: 20px 24px;
   margin-bottom: 20px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 .summary-card {
@@ -240,19 +245,68 @@ button {
   padding: 20px;
   border-radius: 20px;
   background: var(--surface);
+  border: 1px solid var(--divider);
   color: var(--muted);
   text-align: center;
   font-size: 14px;
   line-height: 1.5;
   box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  opacity: 1;
+  transition: opacity 220ms ease, transform 220ms ease;
+  margin-bottom: 16px;
+}
+
+.loading-state.hidden {
+  display: none !important;
+}
+
+.loading-card {
+  height: 80px;
+  border-radius: 24px;
+  background: linear-gradient(
+    90deg,
+    var(--surface) 0%,
+    var(--surface-2) 45%,
+    var(--surface) 100%
+  );
+  background-size: 200% 100%;
+  border: 1px solid var(--divider);
+  box-shadow: var(--shadow-soft);
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 .app-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.3s cubic-bezier(.2, .8, .2, 1), transform 0.3s cubic-bezier(.2, .8, .2, 1);
+
+  &.is-ready {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  &.is-loading {
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 .app-card {
@@ -261,16 +315,17 @@ button {
   gap: 16px;
   padding: 16px;
   background: var(--surface);
+  border: 1px solid var(--divider);
   border-radius: 24px;
   box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  cursor: pointer;
   
   transition:
     opacity 0.26s cubic-bezier(.2, .8, .2, 1),
     transform 0.26s cubic-bezier(.2, .8, .2, 1),
     border-radius 0.18s ease,
     background 0.16s ease;
+  transition-delay: var(--enter-delay, 0ms), var(--enter-delay, 0ms), 0s, 0s;
 
   &:active {
     background: var(--surface-pressed);
@@ -302,6 +357,20 @@ button {
   flex-shrink: 0;
 }
 
+.icon-loader {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-pressed) 45%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+  z-index: 2;
+}
+
 .icon-fallback {
   position: absolute;
   inset: 0;
@@ -310,6 +379,16 @@ button {
   font-size: 20px;
   font-weight: 700;
   color: var(--secondary);
+  background: var(--surface-2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  z-index: 1;
+
+  &.visible {
+    opacity: 1;
+    visibility: visible;
+  }
 }
 
 .app-icon {
@@ -320,7 +399,7 @@ button {
   object-fit: cover;
   opacity: 0;
   transition: opacity 0.3s ease;
-  z-index: 1;
+  z-index: 3;
 
   &.is-loaded {
     opacity: 1;
@@ -361,7 +440,7 @@ button {
 
   &.is-pending-add,
   &.is-pending-remove {
-    color: var(--danger); /* using danger/orange */
+    color: var(--danger);
   }
   
   &.is-pending-add {
@@ -388,6 +467,7 @@ button {
   box-shadow: inset 0 0 0 1px var(--divider), var(--shadow-button);
   transition: background 0.25s ease;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .switch:active {
@@ -442,8 +522,7 @@ button {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-button);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  cursor: pointer;
 
   transition:
     transform 0.18s cubic-bezier(.2, .8, .2, 1),
@@ -482,9 +561,7 @@ button {
 .dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -500,6 +577,7 @@ button {
 
   .dialog {
     background: var(--surface);
+    border: 1px solid var(--divider);
     border-radius: 28px;
     padding: 24px;
     width: 100%;
@@ -547,8 +625,9 @@ button {
     font-weight: 600;
     background: var(--surface-2);
     color: var(--text);
-    transition: background 0.2s ease;
+    transition: background 0.2s ease, transform 0.1s ease;
     box-shadow: var(--shadow-button);
+    cursor: pointer;
 
     &:active {
       background: var(--surface-pressed);
@@ -569,13 +648,12 @@ button {
   transform: translate(-50%, 20px);
   background: var(--surface);
   color: var(--text);
+  border: 1px solid var(--divider);
   padding: 12px 20px;
   border-radius: 999px;
   font-size: 14px;
   font-weight: 500;
   box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   z-index: 1000;
   opacity: 0;
   transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);

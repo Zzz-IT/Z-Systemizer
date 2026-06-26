@@ -67,6 +67,9 @@ set_perm "$CLI_DST" 0 0 0755
 if [ -f "$MODDIR/post-fs-data.sh" ]; then
   set_perm "$MODDIR/post-fs-data.sh" 0 0 0755
 fi
+if [ -f "$MODDIR/service.sh" ]; then
+  set_perm "$MODDIR/service.sh" 0 0 0755
+fi
 
 ui_print "- 安装完成"
 ui_print "- 已启用状态文件与开机前一致性检查"

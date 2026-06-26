@@ -60,10 +60,24 @@ jobs:
           grep -q 'empty-state' webui/dist/index.html
           grep -q 'status-line' webui/dist/index.html
           grep -q 'reboot-fab' webui/dist/index.html
+          grep -q 'loading-state' webui/dist/index.html
+          grep -R 'IntersectionObserver' webui/dist/assets
+          grep -R 'ksu://icon' webui/dist/assets
+          grep -R 'icon-loader' webui/dist/assets
+          grep -R 'icon-fallback' webui/dist/assets
+          grep -R 'refresh-description' webui/dist/assets
           grep -R '\.hidden' webui/dist/assets
           grep -R '\.empty-state' webui/dist/assets
           if grep -R "https://" webui/dist; then
             echo "WebUI should not depend on remote assets"
+            exit 1
+          fi
+          if grep -R "backdrop-filter" webui/dist/assets; then
+            echo "UI surfaces must not use backdrop-filter"
+            exit 1
+          fi
+          if grep -R -- "--surface: rgba" webui/dist/assets; then
+            echo "Surface colors must be opaque"
             exit 1
           fi
 

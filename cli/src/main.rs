@@ -622,19 +622,48 @@ fn diagnose() -> Result<(), String> {
     Ok(())
 }
 
-fn update_description(state: &StateFile) {
-    let count = state
+fn build_description(state: &StateFile) -> String {
+    let active = state
         .apps
         .values()
-        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
+        .filter(|r| r.status == AppStatus::Active)
         .count();
-    let desc = format!(
-        "Z Systemizer: {} app(s) staged under system/app. Reboot required after changes.",
-        count
-    );
+
+    let pending_add = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::PendingAdd)
+        .count();
+
+    let pending_remove = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::PendingRemove)
+        .count();
+
+    if pending_add == 0 && pending_remove == 0 {
+        format!("Z Systemizer：已系统化 {} 个应用。", active)
+    } else {
+        format!(
+            "Z Systemizer：已系统化 {} 个，待系统化 {} 个，待移除 {} 个；待处理项需重启生效。",
+            active, pending_add, pending_remove
+        )
+    }
+}
+
+fn update_description(state: &StateFile) {
+    let desc = build_description(state);
+
     let _ = Command::new("ksud")
         .args(["module", "config", "set", "override.description", &desc])
         .status();
+}
+
+fn refresh_description() -> Result<(), String> {
+    let state = read_state()?;
+    update_description(&state);
+    println!("ok=true");
+    Ok(())
 }
 
 fn list_systemized() -> Result<(), String> {
@@ -676,6 +705,7 @@ fn usage() {
     eprintln!("  systemizer unsystemize <package>");
     eprintln!("  systemizer state-json");
     eprintln!("  systemizer reconcile --phase <install|post-fs-data|manual>");
+    eprintln!("  systemizer refresh-description");
 }
 
 fn run() -> Result<(), String> {
@@ -720,6 +750,7 @@ fn run() -> Result<(), String> {
             }
             unsystemize(&args[2])
         }
+        "refresh-description" => refresh_description(),
         _ => {
             usage();
             Err(format!("unknown command: {}", args[1]))
