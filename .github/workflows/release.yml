@@ -111,6 +111,8 @@ jobs:
           unzip -p "$ZIP" webroot/index.html | grep -q 'empty-state'
           unzip -p "$ZIP" webroot/index.html | grep -q 'status-line'
           unzip -p "$ZIP" webroot/index.html | grep -q 'reboot-fab'
+          unzip -p "$ZIP" | grep -q '\.hidden'
+          unzip -p "$ZIP" | grep -q '\.empty-state'
 
           if unzip -l "$ZIP" | grep -q 'system/priv-app'; then
             echo 'priv-app path must not be packaged'
