@@ -567,3 +567,22 @@ button {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+
+.hidden {
+  display: none !important;
+}
+
+.empty-state {
+  margin: 16px 0;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+

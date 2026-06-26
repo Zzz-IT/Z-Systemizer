@@ -56,6 +56,10 @@ jobs:
       - name: Verify WebUI output
         run: |
           test -f webui/dist/index.html
+          grep -q 'app-list' webui/dist/index.html
+          grep -q 'empty-state' webui/dist/index.html
+          grep -q 'status-line' webui/dist/index.html
+          grep -q 'reboot-fab' webui/dist/index.html
           if grep -R "https://" webui/dist; then
             echo "WebUI should not depend on remote assets"
             exit 1

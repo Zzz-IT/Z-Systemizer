@@ -7,8 +7,8 @@
     content="width=device-width, initial-scale=1, viewport-fit=cover"
   />
   <title>Z Systemizer</title>
-  <script type="module" crossorigin src="/assets/index-CiMQ-m6H.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-ry3c3cAe.css">
+  <script type="module" crossorigin src="/assets/index-BFHjQIs4.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DqXXwkPg.css">
 </head>
 <body>
   <div class="page">
@@ -24,7 +24,7 @@
           <div class="dropdown-menu">
             <label class="menu-item toggle-item">
             <input type="checkbox" id="toggle-only-sys">
-            <span>仅看已系统化</span>
+            <span>仅看系统化/待处理</span>
           </label>
           <div class="menu-divider"></div>
           <button class="menu-item" id="menu-diagnose">运行诊断</button>
@@ -56,6 +56,11 @@
 
     <div class="status-line">正在加载应用列表...</div>
 
+    <section class="empty-state hidden">
+      暂无可显示应用
+    </section>
+
+    <section class="app-list" aria-live="polite"></section>
   </div>
 
   <button class="reboot-fab" aria-label="重启设备">

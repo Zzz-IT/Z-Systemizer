@@ -94,19 +94,24 @@ fn read_state() -> Result<StateFile, String> {
         Err(primary_err) => {
             let bak = path.with_extension("json.bak");
 
-            if bak.exists() {
-                let bak_data = fs::read_to_string(&bak)
-                    .map_err(|e| format!("failed to read state backup: {}", e))?;
-
-                serde_json::from_str(&bak_data).map_err(|backup_err| {
-                    format!(
-                        "failed to parse state json: {}; backup also failed: {}",
-                        primary_err, backup_err
-                    )
-                })
-            } else {
-                Err(format!("failed to parse state json: {}", primary_err))
+            if !bak.exists() {
+                return Err(format!("failed to parse state json: {}", primary_err));
             }
+
+            let bak_data = fs::read_to_string(&bak)
+                .map_err(|e| format!("failed to read state backup: {}", e))?;
+
+            let state: StateFile = serde_json::from_str(&bak_data).map_err(|backup_err| {
+                format!(
+                    "failed to parse state json: {}; backup also failed: {}",
+                    primary_err, backup_err
+                )
+            })?;
+
+            let _ = fs::write(&path, bak_data);
+            let _ = set_file_perm(&path, 0o644);
+
+            Ok(state)
         }
     }
 }
@@ -124,7 +129,12 @@ fn write_state_atomic(state: &mut StateFile) -> Result<(), String> {
     }
 
     if path.exists() {
-        let _ = fs::copy(&path, &bak);
+        if let Ok(data) = fs::read_to_string(&path) {
+            if serde_json::from_str::<StateFile>(&data).is_ok() {
+                let _ = fs::copy(&path, &bak);
+                let _ = set_file_perm(&bak, 0o644);
+            }
+        }
     }
 
     let data =
@@ -269,6 +279,33 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     let app_dir = target_root.join(&pkg);
 
     if let Some(record) = state.apps.get_mut(&pkg) {
+        if record.status == AppStatus::Active {
+            if app_dir.is_dir() {
+                println!(
+                    "ok=true\npackage={}\ntarget={}\nalready_active=true\nreboot_required=false",
+                    pkg, target
+                );
+                return Ok(());
+            }
+
+            if pkg_apks_dir.is_dir() {
+                sync_dir(&pkg_apks_dir, &app_dir)?;
+
+                record.updated_at = current_time();
+                record.pending_boot_id = None;
+
+                write_state_atomic(&mut state)?;
+                update_description(&state);
+
+                println!(
+                    "ok=true\npackage={}\ntarget={}\nrepaired=true\nreboot_required=false",
+                    pkg, target
+                );
+
+                return Ok(());
+            }
+        }
+
         if record.status == AppStatus::PendingRemove && pkg_apks_dir.is_dir() {
             sync_dir(&pkg_apks_dir, &app_dir)?;
 
@@ -388,6 +425,13 @@ fn list_user_apps() -> Result<(), String> {
 
 const MAX_POST_FS_REPAIRS: usize = 3;
 
+fn validate_phase(phase: &str) -> Result<&str, String> {
+    match phase {
+        "install" | "post-fs-data" | "manual" => Ok(phase),
+        _ => Err(format!("invalid reconcile phase: {}", phase)),
+    }
+}
+
 fn reconcile(phase: &str) -> Result<(), String> {
     let mut state = read_state()?;
     let boot_id = get_boot_id();
@@ -418,9 +462,13 @@ fn reconcile(phase: &str) -> Result<(), String> {
                         sync_dir(&pkg_apks_dir, &app_dir)?;
                         repairs += 1;
                         changed = true;
-                    } else if phase == "manual" || phase == "install" {
+                    } else if phase == "manual" {
                         keys_to_remove.push(pkg.clone());
                         changed = true;
+                    } else {
+                        // install / post-fs-data 缓存缺失时保留 active 记录
+                        // diagnose 负责提示 cache_missing / system_app_missing
+                        continue;
                     }
                 }
             }
@@ -497,39 +545,68 @@ fn reconcile(phase: &str) -> Result<(), String> {
 fn diagnose() -> Result<(), String> {
     let state = read_state()?;
     let root = moddir();
+    let system_root = root.join("system").join(SYSTEM_TARGET);
+    let apks_root = root.join("state").join("apks");
+
     println!("moddir={}", root.display());
     println!("moddir_exists={}", root.is_dir());
-    println!(
-        "system_app_dir_exists={}",
-        root.join("system").join(SYSTEM_TARGET).is_dir()
-    );
+    println!("system_app_dir_exists={}", system_root.is_dir());
     println!("state_file_exists={}", state_file_path().is_file());
+    println!(
+        "state_backup_exists={}",
+        state_file_path().with_extension("json.bak").is_file()
+    );
     println!("state_schema_version={}", state.schema_version);
+    println!("boot_id={}", get_boot_id());
+    println!("state_boot_id={}", state.boot_id);
     println!("state_apps={}", state.apps.len());
+
+    let active = state.apps.values().filter(|r| r.status == AppStatus::Active).count();
+    let pending_add = state.apps.values().filter(|r| r.status == AppStatus::PendingAdd).count();
+    let pending_remove = state.apps.values().filter(|r| r.status == AppStatus::PendingRemove).count();
+
+    println!("state_active={}", active);
+    println!("state_pending_add={}", pending_add);
+    println!("state_pending_remove={}", pending_remove);
+
+    let mut cache_missing = 0;
+    let mut system_missing = 0;
+    let mut pending_remove_system_exists = 0;
+
+    for (pkg, record) in &state.apps {
+        let app_dir = system_root.join(pkg);
+        let cache_dir = apks_root.join(pkg);
+        let cache_exists = cache_dir.is_dir();
+        let system_exists = app_dir.is_dir();
+
+        match record.status {
+            AppStatus::Active | AppStatus::PendingAdd => {
+                if !cache_exists {
+                    cache_missing += 1;
+                    println!("app.{}.cache_missing=true", pkg);
+                }
+
+                if !system_exists {
+                    system_missing += 1;
+                    println!("app.{}.system_app_missing=true", pkg);
+                }
+            }
+            AppStatus::PendingRemove => {
+                if system_exists {
+                    pending_remove_system_exists += 1;
+                    println!("app.{}.pending_remove_system_dir_exists=true", pkg);
+                }
+            }
+        }
+    }
+
+    println!("cache_missing_count={}", cache_missing);
+    println!("system_app_missing_count={}", system_missing);
     println!(
-        "state_active={}",
-        state
-            .apps
-            .values()
-            .filter(|r| r.status == AppStatus::Active)
-            .count()
+        "pending_remove_system_dir_exists_count={}",
+        pending_remove_system_exists
     );
-    println!(
-        "state_pending_add={}",
-        state
-            .apps
-            .values()
-            .filter(|r| r.status == AppStatus::PendingAdd)
-            .count()
-    );
-    println!(
-        "state_pending_remove={}",
-        state
-            .apps
-            .values()
-            .filter(|r| r.status == AppStatus::PendingRemove)
-            .count()
-    );
+
     Ok(())
 }
 
@@ -615,7 +692,8 @@ fn run() -> Result<(), String> {
             if args.len() < 4 || args[2] != "--phase" {
                 return Err("usage: reconcile --phase <install|post-fs-data|manual>".into());
             }
-            reconcile(&args[3])
+            let phase = validate_phase(&args[3])?;
+            reconcile(phase)
         }
         "systemize" => {
             if args.len() < 4 {

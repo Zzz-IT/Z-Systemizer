@@ -37,6 +37,12 @@ if [ "$MODDIR" != "$OLD_MODDIR" ] && [ -f "$OLD_MODDIR/state/systemizer-state.js
   cp "$OLD_MODDIR/state/systemizer-state.json" "$MODDIR/state/systemizer-state.json" \
     || abort "迁移状态文件失败"
 
+  if [ -f "$OLD_MODDIR/state/systemizer-state.json.bak" ]; then
+    ui_print "- 迁移状态备份文件"
+    cp "$OLD_MODDIR/state/systemizer-state.json.bak" "$MODDIR/state/systemizer-state.json.bak" \
+      || true
+  fi
+
   if [ -d "$OLD_MODDIR/state/apks" ]; then
     ui_print "- 迁移 APK 缓存"
     cp -r "$OLD_MODDIR/state/apks/"* "$MODDIR/state/apks/" 2>/dev/null || true

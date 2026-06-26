@@ -179,11 +179,25 @@ function createCardElement(app: UiAppEntry): HTMLElement {
 
   const img = card.querySelector<HTMLImageElement>('.app-icon')
   if (img) {
-    img.onload = () => img.classList.add('is-loaded')
-    img.onerror = () => img.classList.add('is-error')
+    img.onload = () => {
+      img.classList.remove('is-error')
+      img.classList.add('is-loaded')
+    }
+
+    img.onerror = () => {
+      img.classList.remove('is-loaded')
+      img.classList.add('is-error')
+    }
+
+    requestAnimationFrame(() => {
+      if (img.complete && img.naturalWidth > 0) {
+        img.classList.remove('is-error')
+        img.classList.add('is-loaded')
+      }
+    })
   }
 
-  scheduleIconCache(app)
+  enqueueIconJob(app)
 
   return card
 }
@@ -258,10 +272,88 @@ async function clearAllIconCache() {
   }
 
   iconCache.clear()
+  queuedIcons.clear()
+  runningIcons.clear()
+  iconQueue.length = 0
+  activeIconJobs = 0
+
   await clearIconCache()
+
+  for (const app of state.apps) {
+    const card = renderedCards.get(app.packageName)
+    const img = card?.querySelector<HTMLImageElement>('.app-icon')
+    if (!img) continue
+
+    img.classList.remove('is-loaded', 'is-error')
+    img.src = `ksu://icon/${app.packageName}`
+
+    enqueueIconJob(app)
+  }
 }
 
 const iconCache = new Map<string, string>()
+const iconQueue: UiAppEntry[] = []
+const queuedIcons = new Set<string>()
+const runningIcons = new Set<string>()
+let activeIconJobs = 0
+
+const MAX_ICON_JOBS = 4
+
+function enqueueIconJob(app: UiAppEntry) {
+  const pkg = app.packageName
+
+  if (iconCache.has(pkg)) return
+  if (queuedIcons.has(pkg)) return
+  if (runningIcons.has(pkg)) return
+
+  queuedIcons.add(pkg)
+  iconQueue.push(app)
+  pumpIconQueue()
+}
+
+function pumpIconQueue() {
+  while (activeIconJobs < MAX_ICON_JOBS && iconQueue.length > 0) {
+    const app = iconQueue.shift()!
+    const pkg = app.packageName
+
+    queuedIcons.delete(pkg)
+
+    if (iconCache.has(pkg) || runningIcons.has(pkg)) {
+      continue
+    }
+
+    runningIcons.add(pkg)
+    activeIconJobs++
+
+    fetchAndSaveIcon(pkg)
+      .then(url => {
+        if (!url.startsWith('blob:')) return
+
+        const old = iconCache.get(pkg)
+        if (old?.startsWith('blob:')) {
+          URL.revokeObjectURL(old)
+        }
+
+        iconCache.set(pkg, url)
+
+        const card = renderedCards.get(pkg)
+        const img = card?.querySelector<HTMLImageElement>('.app-icon')
+        if (img) {
+          img.src = url
+          img.classList.remove('is-error')
+          img.classList.add('is-loaded')
+        }
+      })
+      .catch(e => {
+        console.warn('cache icon failed', pkg, e)
+      })
+      .finally(() => {
+        runningIcons.delete(pkg)
+        activeIconJobs--
+        pumpIconQueue()
+      })
+  }
+}
 
 async function fetchAndSaveIcon(pkg: string): Promise<string> {
   const fromFetch = await fetchIconViaFetch(pkg)
@@ -328,28 +420,20 @@ async function captureIconViaImage(pkg: string): Promise<string | null> {
 function scheduleIconCache(app: UiAppEntry) {
   if (iconCache.has(app.packageName)) return
 
-  fetchAndSaveIcon(app.packageName)
-    .then(url => {
-      iconCache.set(app.packageName, url)
-
-      const card = renderedCards.get(app.packageName)
-      const img = card?.querySelector<HTMLImageElement>('.app-icon')
-      if (img) {
-        img.src = url
-        img.classList.add('is-loaded')
-      }
-    })
-    .catch(e => {
-      console.warn('cache icon failed', app.packageName, e)
-    })
+  enqueueIconJob(app)
 }
 
 const PRELOAD_ICON_LIMIT = 40
+const PRELOAD_ICON_TIMEOUT_MS = 250
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 async function preloadIconsForApps(apps: UiAppEntry[]): Promise<void> {
   const visible = apps.slice(0, PRELOAD_ICON_LIMIT)
 
-  await Promise.allSettled(
+  const preload = Promise.allSettled(
     visible.map(async app => {
       if (iconCache.has(app.packageName)) return
 
@@ -359,7 +443,12 @@ async function preloadIconsForApps(apps: UiAppEntry[]): Promise<void> {
       const url = URL.createObjectURL(blob)
       iconCache.set(app.packageName, url)
     })
-  )
+  ).then(() => {})
+
+  await Promise.race([
+    preload,
+    delay(PRELOAD_ICON_TIMEOUT_MS),
+  ])
 }
 
 function updateCardElement(card: HTMLElement, app: UiAppEntry) {
@@ -391,7 +480,7 @@ function updateCardDOM(pkg: string) {
 
 function renderSummary() {
   const systemizedCount = state.apps.filter(app => 
-    app.status === 'systemized' || app.status === 'pending-remove'
+    app.status === 'systemized'
   ).length
 
   const pendingCount = state.apps.filter(app =>
@@ -416,7 +505,7 @@ async function toggleApp(app: UiAppEntry) {
   }
 
   if (app.status === 'pending-remove') {
-    await doSystemize(app, '已取消待移除，重新写入队列')
+    await doSystemize(app, '已撤销移除')
     return
   }
 
@@ -472,6 +561,23 @@ async function doUnsystemize(app: UiAppEntry, msg: string) {
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+function showFatalError(e: unknown) {
+  const message = errorMessage(e)
+
+  const statusLine = document.querySelector<HTMLElement>('.status-line')
+  if (statusLine) {
+    statusLine.textContent = `加载失败：${message}`
+  }
+
+  const empty = document.querySelector<HTMLElement>('.empty-state')
+  if (empty) {
+    empty.classList.remove('hidden')
+    empty.textContent = message
+  }
+
+  toast(message)
 }
 
 function toast(message: string) {
@@ -603,7 +709,7 @@ async function refresh() {
 
     render()
   } catch (e) {
-    toast(errorMessage(e))
+    showFatalError(e)
   } finally {
     state.globalBusy = false
   }
@@ -706,7 +812,4 @@ function bindEvents() {
 }
 
 bindEvents()
-refresh().catch(e => {
-  $('.status-line').textContent = errorMessage(e)
-  toast(errorMessage(e))
-})
+refresh().catch(showFatalError)
