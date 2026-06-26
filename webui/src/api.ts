@@ -41,9 +41,28 @@ export interface SystemizerState {
   apps: Record<string, AppRecord>
 }
 
+export function emptySystemizerState(): SystemizerState {
+  return {
+    schemaVersion: 1,
+    moduleId: 'ksu-systemizer',
+    updatedAt: 0,
+    bootId: '',
+    apps: {},
+  }
+}
+
 export async function getSystemizerState(): Promise<SystemizerState> {
   const out = await shell(`${CLI} state-json`)
   return JSON.parse(out)
+}
+
+export async function getSystemizerStateSafe(): Promise<SystemizerState> {
+  try {
+    return await getSystemizerState()
+  } catch (e) {
+    console.warn('state-json failed, using empty state', e)
+    return emptySystemizerState()
+  }
 }
 
 export async function getApps(): Promise<AppEntry[]> {
@@ -55,6 +74,25 @@ export async function getApps(): Promise<AppEntry[]> {
     appName: infos[i]?.appLabel || pkg,
     isSystem: infos[i]?.isSystem ?? false,
   }))
+}
+
+export async function getAppsSafe(): Promise<AppEntry[]> {
+  try {
+    return await getApps()
+  } catch (e) {
+    console.warn('KernelSU package API failed, fallback to CLI list-user-apps', e)
+
+    const out = await shell(`${CLI} list-user-apps`)
+    return out
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(pkg => ({
+        packageName: pkg,
+        appName: pkg,
+        isSystem: false,
+      }))
+  }
 }
 
 export async function systemize(pkg: string): Promise<void> {

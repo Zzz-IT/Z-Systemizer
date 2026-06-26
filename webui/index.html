@@ -22,7 +22,7 @@
           <div class="dropdown-menu">
             <label class="menu-item toggle-item">
             <input type="checkbox" id="toggle-only-sys">
-            <span>仅看已系统化</span>
+            <span>仅看系统化/待处理</span>
           </label>
           <div class="menu-divider"></div>
           <button class="menu-item" id="menu-diagnose">运行诊断</button>
@@ -54,6 +54,11 @@
 
     <div class="status-line">正在加载应用列表...</div>
 
+    <section class="empty-state hidden">
+      暂无可显示应用
+    </section>
+
+    <section class="app-list" aria-live="polite"></section>
   </div>
 
   <button class="reboot-fab" aria-label="重启设备">

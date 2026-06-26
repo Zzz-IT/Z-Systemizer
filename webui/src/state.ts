@@ -5,6 +5,7 @@ export type UiStatus = 'normal' | 'systemized' | 'pending-add' | 'pending-remove
 export interface UiAppEntry extends AppEntry {
   status: UiStatus
   busy: boolean
+  fromStateOnly?: boolean
 }
 
 export function uiStatusOf(pkg: string, persisted: SystemizerState): UiStatus {
@@ -25,15 +26,33 @@ export function uiStatusOf(pkg: string, persisted: SystemizerState): UiStatus {
 
 export function buildUiApps(
   apps: AppEntry[],
-  state: SystemizerState,
+  persisted: SystemizerState,
 ): UiAppEntry[] {
-  return apps
-    .filter(app => !app.isSystem || state.apps[app.packageName])
+  const appMap = new Map(apps.map(app => [app.packageName, app]))
+
+  const rows: UiAppEntry[] = apps
+    .filter(app => !app.isSystem || persisted.apps[app.packageName])
     .map(app => ({
       ...app,
-      status: uiStatusOf(app.packageName, state),
+      status: uiStatusOf(app.packageName, persisted),
       busy: false,
+      fromStateOnly: false,
     }))
+
+  for (const [pkg] of Object.entries(persisted.apps)) {
+    if (appMap.has(pkg)) continue
+
+    rows.push({
+      packageName: pkg,
+      appName: pkg,
+      isSystem: true,
+      status: uiStatusOf(pkg, persisted),
+      busy: false,
+      fromStateOnly: true,
+    })
+  }
+
+  return rows
 }
 
 export function mergeBusyState(nextApps: UiAppEntry[], oldApps: UiAppEntry[]): UiAppEntry[] {

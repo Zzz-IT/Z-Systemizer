@@ -81,24 +81,50 @@ fn state_file_path() -> PathBuf {
 
 fn read_state() -> Result<StateFile, String> {
     let path = state_file_path();
+
     if !path.exists() {
         return Ok(StateFile::default());
     }
+
     let data =
         fs::read_to_string(&path).map_err(|e| format!("failed to read state file: {}", e))?;
-    let state =
-        serde_json::from_str(&data).map_err(|e| format!("failed to parse state json: {}", e))?;
-    Ok(state)
+
+    match serde_json::from_str(&data) {
+        Ok(state) => Ok(state),
+        Err(primary_err) => {
+            let bak = path.with_extension("json.bak");
+
+            if bak.exists() {
+                let bak_data = fs::read_to_string(&bak)
+                    .map_err(|e| format!("failed to read state backup: {}", e))?;
+
+                serde_json::from_str(&bak_data).map_err(|backup_err| {
+                    format!(
+                        "failed to parse state json: {}; backup also failed: {}",
+                        primary_err, backup_err
+                    )
+                })
+            } else {
+                Err(format!("failed to parse state json: {}", primary_err))
+            }
+        }
+    }
 }
 
 fn write_state_atomic(state: &mut StateFile) -> Result<(), String> {
     state.updated_at = current_time();
+
     let path = state_file_path();
     let tmp = path.with_extension(format!("json.{}.tmp", id()));
+    let bak = path.with_extension("json.bak");
 
     let state_dir = path.parent().unwrap();
     if !state_dir.exists() {
         create_dir(state_dir)?;
+    }
+
+    if path.exists() {
+        let _ = fs::copy(&path, &bak);
     }
 
     let data =
@@ -109,6 +135,7 @@ fn write_state_atomic(state: &mut StateFile) -> Result<(), String> {
     fs::rename(&tmp, &path).map_err(|e| format!("rename state tmp failed: {}", e))?;
 
     set_file_perm(&path, 0o644)?;
+
     Ok(())
 }
 
@@ -236,8 +263,32 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     create_dir(&apks_dir)?;
 
     let pkg_apks_dir = apks_dir.join(&pkg);
-    let tmp_apks_dir = apks_dir.join(format!(".{}.{}.tmp", pkg, id()));
+    let target_root = root.join("system").join(target);
+    create_dir(&target_root)?;
 
+    let app_dir = target_root.join(&pkg);
+
+    if let Some(record) = state.apps.get_mut(&pkg) {
+        if record.status == AppStatus::PendingRemove && pkg_apks_dir.is_dir() {
+            sync_dir(&pkg_apks_dir, &app_dir)?;
+
+            record.status = AppStatus::Active;
+            record.updated_at = current_time();
+            record.pending_boot_id = None;
+
+            write_state_atomic(&mut state)?;
+            update_description(&state);
+
+            println!(
+                "ok=true\npackage={}\ntarget={}\nrestored=true\nreboot_required=false",
+                pkg, target
+            );
+
+            return Ok(());
+        }
+    }
+
+    let tmp_apks_dir = apks_dir.join(format!(".{}.{}.tmp", pkg, id()));
     let apks = pm_path(&pkg)?;
 
     let _ = fs::remove_dir_all(&tmp_apks_dir);
@@ -248,7 +299,11 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
             let _ = fs::remove_dir_all(&tmp_apks_dir);
             return Err(format!("apk is not a file: {}", apk.display()));
         }
-        let filename = apk.file_name().unwrap();
+
+        let filename = apk
+            .file_name()
+            .ok_or_else(|| format!("bad apk path: {}", apk.display()))?;
+
         let dst = tmp_apks_dir.join(filename);
         fs::copy(&apk, &dst).map_err(|e| format!("copy {} failed: {}", apk.display(), e))?;
         set_file_perm(&dst, 0o644)?;
@@ -257,10 +312,6 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     let _ = fs::remove_dir_all(&pkg_apks_dir);
     fs::rename(&tmp_apks_dir, &pkg_apks_dir)
         .map_err(|e| format!("rename to state/apks/pkg failed: {}", e))?;
-
-    let target_root = root.join("system").join(target);
-    create_dir(&target_root)?;
-    let app_dir = target_root.join(&pkg);
 
     sync_dir(&pkg_apks_dir, &app_dir)?;
 
@@ -273,6 +324,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
         updated_at: now,
         pending_boot_id: Some(get_boot_id()),
     });
+
     record.status = AppStatus::PendingAdd;
     record.updated_at = now;
     record.pending_boot_id = Some(get_boot_id());
@@ -284,6 +336,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
         "ok=true\npackage={}\ntarget={}\nreboot_required=true",
         pkg, target
     );
+
     Ok(())
 }
 
@@ -333,9 +386,12 @@ fn list_user_apps() -> Result<(), String> {
     Ok(())
 }
 
+const MAX_POST_FS_REPAIRS: usize = 3;
+
 fn reconcile(phase: &str) -> Result<(), String> {
     let mut state = read_state()?;
     let boot_id = get_boot_id();
+
     let root = moddir();
     let target_root = root.join("system").join(SYSTEM_TARGET);
     let apks_root = root.join("state").join("apks");
@@ -344,6 +400,8 @@ fn reconcile(phase: &str) -> Result<(), String> {
     create_dir(&apks_root)?;
 
     let mut keys_to_remove = Vec::new();
+    let mut changed = false;
+    let mut repairs = 0usize;
 
     for (pkg, record) in state.apps.iter_mut() {
         let app_dir = target_root.join(pkg);
@@ -353,43 +411,66 @@ fn reconcile(phase: &str) -> Result<(), String> {
             AppStatus::Active => {
                 if !app_dir.is_dir() {
                     if pkg_apks_dir.is_dir() {
-                        let _ = sync_dir(&pkg_apks_dir, &app_dir);
+                        if phase == "post-fs-data" && repairs >= MAX_POST_FS_REPAIRS {
+                            continue;
+                        }
+
+                        sync_dir(&pkg_apks_dir, &app_dir)?;
+                        repairs += 1;
+                        changed = true;
                     } else if phase == "manual" || phase == "install" {
                         keys_to_remove.push(pkg.clone());
+                        changed = true;
                     }
                 }
             }
+
             AppStatus::PendingAdd => {
                 if phase == "post-fs-data" {
                     if record.pending_boot_id.as_deref() != Some(&boot_id) {
-                        if !app_dir.is_dir() && pkg_apks_dir.is_dir() {
-                            let _ = sync_dir(&pkg_apks_dir, &app_dir);
+                        if !app_dir.is_dir() {
+                            if pkg_apks_dir.is_dir() {
+                                if repairs >= MAX_POST_FS_REPAIRS {
+                                    continue;
+                                }
+
+                                sync_dir(&pkg_apks_dir, &app_dir)?;
+                                repairs += 1;
+                            } else {
+                                // 缓存缺失，不能落定 active
+                                continue;
+                            }
                         }
+
                         record.status = AppStatus::Active;
                         record.updated_at = current_time();
+                        record.pending_boot_id = None;
+                        changed = true;
                     }
-                } else {
-                    if !app_dir.is_dir() && pkg_apks_dir.is_dir() {
-                        let _ = sync_dir(&pkg_apks_dir, &app_dir);
-                    }
+                } else if !app_dir.is_dir() && pkg_apks_dir.is_dir() {
+                    sync_dir(&pkg_apks_dir, &app_dir)?;
+                    changed = true;
                 }
             }
+
             AppStatus::PendingRemove => {
                 if phase == "post-fs-data" {
                     if record.pending_boot_id.as_deref() != Some(&boot_id) {
-                        if !app_dir.is_dir() {
-                            let _ = fs::remove_dir_all(&pkg_apks_dir);
-                            keys_to_remove.push(pkg.clone());
-                        } else {
-                            // If for some reason it's still there, force remove it
+                        let _ = fs::remove_dir_all(&app_dir);
+                        let _ = fs::remove_dir_all(&pkg_apks_dir);
+
+                        keys_to_remove.push(pkg.clone());
+                        changed = true;
+                    } else {
+                        if app_dir.is_dir() {
                             let _ = fs::remove_dir_all(&app_dir);
-                            let _ = fs::remove_dir_all(&pkg_apks_dir);
-                            keys_to_remove.push(pkg.clone());
+                            changed = true;
                         }
                     }
                 } else {
                     if app_dir.is_dir() {
                         let _ = fs::remove_dir_all(&app_dir);
+                        changed = true;
                     }
                 }
             }
@@ -400,11 +481,13 @@ fn reconcile(phase: &str) -> Result<(), String> {
         state.apps.remove(&pkg);
     }
 
-    state.boot_id = boot_id;
-    write_state_atomic(&mut state)?;
-    update_description(&state);
+    if changed || state.boot_id != boot_id {
+        state.boot_id = boot_id;
+        write_state_atomic(&mut state)?;
+    }
 
     if phase != "post-fs-data" {
+        update_description(&state);
         println!("reconcile phase={} completed.", phase);
     }
 
@@ -465,10 +548,41 @@ fn update_description(state: &StateFile) {
         .status();
 }
 
+fn list_systemized() -> Result<(), String> {
+    let state = read_state()?;
+
+    for (pkg, record) in state.apps {
+        match record.status {
+            AppStatus::Active | AppStatus::PendingAdd => {
+                println!("{} app", pkg);
+            }
+            AppStatus::PendingRemove => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn status(pkg: &str) -> Result<(), String> {
+    let pkg = safe_pkg(pkg)?;
+    let state = read_state()?;
+
+    match state.apps.get(&pkg).map(|r| &r.status) {
+        Some(AppStatus::Active) => println!("active"),
+        Some(AppStatus::PendingAdd) => println!("pending_add"),
+        Some(AppStatus::PendingRemove) => println!("pending_remove"),
+        None => println!("none"),
+    }
+
+    Ok(())
+}
+
 fn usage() {
     eprintln!("usage:");
     eprintln!("  systemizer diagnose");
     eprintln!("  systemizer list-user-apps");
+    eprintln!("  systemizer list-systemized");
+    eprintln!("  systemizer status <package>");
     eprintln!("  systemizer systemize <package> app [--dry-run]");
     eprintln!("  systemizer unsystemize <package>");
     eprintln!("  systemizer state-json");
@@ -485,6 +599,13 @@ fn run() -> Result<(), String> {
     match args[1].as_str() {
         "diagnose" => diagnose(),
         "list-user-apps" => list_user_apps(),
+        "list-systemized" => list_systemized(),
+        "status" => {
+            if args.len() < 3 {
+                return Err("missing package".into());
+            }
+            status(&args[2])
+        }
         "state-json" => {
             let state = read_state()?;
             println!("{}", serde_json::to_string_pretty(&state).unwrap());
