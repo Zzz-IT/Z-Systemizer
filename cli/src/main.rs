@@ -561,9 +561,21 @@ fn diagnose() -> Result<(), String> {
     println!("state_boot_id={}", state.boot_id);
     println!("state_apps={}", state.apps.len());
 
-    let active = state.apps.values().filter(|r| r.status == AppStatus::Active).count();
-    let pending_add = state.apps.values().filter(|r| r.status == AppStatus::PendingAdd).count();
-    let pending_remove = state.apps.values().filter(|r| r.status == AppStatus::PendingRemove).count();
+    let active = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::Active)
+        .count();
+    let pending_add = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::PendingAdd)
+        .count();
+    let pending_remove = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::PendingRemove)
+        .count();
 
     println!("state_active={}", active);
     println!("state_pending_add={}", pending_add);
