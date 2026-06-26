@@ -366,8 +366,12 @@ async function fetchAndSaveIcon(pkg: string): Promise<string> {
 }
 
 async function fetchIconViaFetch(pkg: string): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 1200)
+
   try {
-    const res = await fetch(`ksu://icon/${pkg}`)
+    const res = await fetch(`ksu://icon/${pkg}`, { signal: controller.signal })
+    clearTimeout(timer)
     if (!res.ok) return null
 
     const blob = await res.blob()
@@ -375,15 +379,27 @@ async function fetchIconViaFetch(pkg: string): Promise<string | null> {
 
     return URL.createObjectURL(blob)
   } catch {
+    clearTimeout(timer)
     return null
   }
 }
 
 async function captureIconViaImage(pkg: string): Promise<string | null> {
   return new Promise(resolve => {
+    let done = false
+
+    const finish = (value: string | null) => {
+      if (done) return
+      done = true
+      resolve(value)
+    }
+
+    const timer = setTimeout(() => finish(null), 1200)
+
     const img = new Image()
 
     img.onload = () => {
+      clearTimeout(timer)
       try {
         const canvas = document.createElement('canvas')
         canvas.width = img.naturalWidth || img.width || 64
@@ -391,7 +407,7 @@ async function captureIconViaImage(pkg: string): Promise<string | null> {
 
         const ctx = canvas.getContext('2d')
         if (!ctx) {
-          resolve(null)
+          finish(null)
           return
         }
 
@@ -399,28 +415,26 @@ async function captureIconViaImage(pkg: string): Promise<string | null> {
 
         canvas.toBlob(blob => {
           if (!blob) {
-            resolve(null)
+            finish(null)
             return
           }
 
           saveIconBlob(pkg, blob)
-            .then(() => resolve(URL.createObjectURL(blob)))
-            .catch(() => resolve(URL.createObjectURL(blob)))
+            .then(() => finish(URL.createObjectURL(blob)))
+            .catch(() => finish(URL.createObjectURL(blob)))
         }, 'image/png')
       } catch {
-        resolve(null)
+        finish(null)
       }
     }
 
-    img.onerror = () => resolve(null)
+    img.onerror = () => {
+      clearTimeout(timer)
+      finish(null)
+    }
+
     img.src = `ksu://icon/${pkg}`
   })
-}
-
-function scheduleIconCache(app: UiAppEntry) {
-  if (iconCache.has(app.packageName)) return
-
-  enqueueIconJob(app)
 }
 
 const PRELOAD_ICON_LIMIT = 40
@@ -731,7 +745,7 @@ function bindEvents() {
       lastFilter = value
 
       if (wasNonEmpty && isEmpty) {
-        refresh().catch(err => toast(errorMessage(err)))
+        refresh().catch(showFatalError)
         return
       }
 
@@ -740,7 +754,7 @@ function bindEvents() {
   }
 
   $('.refresh-button').onclick = () => {
-    refresh().catch(e => toast(errorMessage(e)))
+    refresh().catch(showFatalError)
   }
 
   $('.reboot-fab').onclick = async () => {

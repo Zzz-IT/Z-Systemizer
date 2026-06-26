@@ -583,18 +583,18 @@ fn diagnose() -> Result<(), String> {
             AppStatus::Active | AppStatus::PendingAdd => {
                 if !cache_exists {
                     cache_missing += 1;
-                    println!("app.{}.cache_missing=true", pkg);
+                    println!("app_cache_missing={}", pkg);
                 }
 
                 if !system_exists {
                     system_missing += 1;
-                    println!("app.{}.system_app_missing=true", pkg);
+                    println!("app_system_missing={}", pkg);
                 }
             }
             AppStatus::PendingRemove => {
                 if system_exists {
                     pending_remove_system_exists += 1;
-                    println!("app.{}.pending_remove_system_dir_exists=true", pkg);
+                    println!("app_pending_remove_system_dir_exists={}", pkg);
                 }
             }
         }
