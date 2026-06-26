@@ -4,7 +4,7 @@ MODDIR="${MODPATH:-${0%/*}}"
 ABI="${ARCH:-$(getprop ro.product.cpu.abi)}"
 OLD_MODDIR="/data/adb/modules/ksu-systemizer"
 
-ui_print "- Z Systemizer v1.1.5"
+ui_print "- Z Systemizer v1.1.6"
 ui_print "- 初始化模块目录"
 
 mkdir -p "$MODDIR/bin" || abort "创建 bin 失败"

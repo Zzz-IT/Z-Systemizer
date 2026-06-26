@@ -740,7 +740,7 @@ function bindEvents() {
     dropdownMenu.classList.remove('show')
     showConfirm({
       title: '关于 Z-Systemizer',
-      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.5\n持久状态与自动同步',
+      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.6\n持久状态与自动同步',
       cancelText: '关闭',
       confirmText: '确定'
     })

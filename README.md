@@ -55,7 +55,7 @@ systemizer unsystemize <package>
 
 ## 安装与使用
 
-1. 从 Releases 页面下载 `Z-Systemizer-v1.1.5.zip`
+1. 从 Releases 页面下载 `Z-Systemizer-v1.1.6.zip`
 2. 在 KernelSU 管理器中刷入该模块
 3. 打开 KernelSU 模块列表
 4. 点进 `Z Systemizer` 模块
@@ -80,7 +80,7 @@ cargo ndk -t arm64-v8a build --release
 mkdir -p module-template/bin/arm64-v8a
 cp cli/target/aarch64-linux-android/release/systemizer module-template/bin/arm64-v8a/systemizer
 cd module-template
-zip -r ../out/Z-Systemizer-v1.1.5.zip .
+zip -r ../out/Z-Systemizer-v1.1.6.zip .
 ```
 
 ## 安全说明
