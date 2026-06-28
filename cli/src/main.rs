@@ -41,7 +41,7 @@ fn get_boot_id() -> String {
         .unwrap_or_else(|_| "unknown_boot_id".to_string())
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum AppStatus {
     Active,
