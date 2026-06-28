@@ -15,7 +15,7 @@ import './style.scss'
 const state = {
   apps: [] as UiAppEntry[],
   filter: '',
-  onlySystemized: false,
+  onlySystemized: localStorage.getItem('onlySystemized') === 'true',
   globalBusy: false,
   rawState: null as SystemizerState | null,
 }
@@ -45,6 +45,11 @@ function markDirtyState(app: UiAppEntry) {
 function updateRefreshHint() {
   const statusLine = document.querySelector<HTMLElement>('.status-line')
   if (!statusLine) return
+  if (state.apps.length === 0) {
+    statusLine.classList.add('hidden')
+    return
+  }
+  statusLine.classList.remove('hidden')
   if (dirtyPackages.size > 0) {
     statusLine.textContent = '列表待刷新'
   } else {
@@ -553,7 +558,8 @@ async function confirmReboot(): Promise<boolean> {
 
 function showConfirm(options: {
   title: string
-  message: string
+  message?: string
+  htmlMessage?: string
   cancelText: string
   confirmText: string
   danger?: boolean
@@ -567,10 +573,15 @@ function showConfirm(options: {
 
     const dialog = document.createElement('div')
     dialog.className = `dialog-backdrop ${options.diagnostic ? 'is-diagnostic' : ''}`
+    
+    const messageContent = options.htmlMessage 
+      ? options.htmlMessage 
+      : escapeHtml(options.message || '').replaceAll('\n', '<br>')
+
     dialog.innerHTML = `
       <div class="dialog">
         <div class="dialog-title">${escapeHtml(options.title)}</div>
-        <div class="dialog-message">${escapeHtml(options.message).replaceAll('\n', '<br>')}</div>
+        <div class="dialog-message">${messageContent}</div>
         <div class="dialog-actions">
           <button class="dialog-cancel">${escapeHtml(options.cancelText)}</button>
           <button class="dialog-confirm ${options.danger ? 'danger' : ''}">${escapeHtml(options.confirmText)}</button>
@@ -633,10 +644,16 @@ async function refresh(mode: RefreshMode = 'manual') {
   const statusLine = document.querySelector<HTMLElement>('.status-line')
 
   if (mode === 'pull') {
-    if (statusLine) statusLine.textContent = '正在刷新...'
+    if (statusLine) {
+      statusLine.classList.remove('hidden')
+      statusLine.textContent = '正在刷新...'
+    }
   } else {
     showAppLoading()
-    if (statusLine) statusLine.textContent = '正在刷新...'
+    if (statusLine) {
+      statusLine.classList.add('hidden')
+      statusLine.textContent = '正在刷新...'
+    }
   }
 
   try {
@@ -739,9 +756,14 @@ function bindEvents() {
     }
   })
   
-  document.getElementById('toggle-only-sys')!.onchange = (e) => {
-    state.onlySystemized = (e.target as HTMLInputElement).checked
-    render()
+  const toggleOnlySys = document.getElementById('toggle-only-sys') as HTMLInputElement
+  if (toggleOnlySys) {
+    toggleOnlySys.checked = state.onlySystemized
+    toggleOnlySys.onchange = (e) => {
+      state.onlySystemized = (e.target as HTMLInputElement).checked
+      localStorage.setItem('onlySystemized', String(state.onlySystemized))
+      render()
+    }
   }
   
   document.getElementById('menu-diagnose')!.onclick = () => {
@@ -761,14 +783,14 @@ function bindEvents() {
       const info = await getModuleInfo()
       showConfirm({
         title: '关于 Z-Systemizer',
-        message: `Z-Systemizer 模块 WebUI\n版本: ${info.version}\n${info.description}`,
+        htmlMessage: `Z-Systemizer 模块 WebUI<br>版本: ${escapeHtml(info.version)}<br>${escapeHtml(info.description)}<br><br><a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">★ 访问 GitHub 仓库</a>`,
         cancelText: '关闭',
         confirmText: '确定'
       })
     } catch (e) {
       showConfirm({
         title: '关于 Z-Systemizer',
-        message: `Z-Systemizer 模块 WebUI\n版本: 1.1.6\n持久状态与自动同步\n(获取模块信息失败: ${errorMessage(e)})`,
+        htmlMessage: `Z-Systemizer 模块 WebUI<br>版本: 1.2.0<br>持久状态与自动同步<br>(获取模块信息失败: ${escapeHtml(errorMessage(e))})<br><br><a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">★ 访问 GitHub 仓库</a>`,
         cancelText: '关闭',
         confirmText: '确定'
       })

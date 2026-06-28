@@ -1,6 +1,6 @@
 id=ksu-systemizer
 name=Z Systemizer
-version=v1.1.6
-versionCode=116
+version=v1.2.0
+versionCode=120
 author=Zzz
 description=通过 KernelSU WebUI 管理 system/app 系统化应用。
