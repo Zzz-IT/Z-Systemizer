@@ -919,10 +919,10 @@ fn status(pkg: &str) -> Result<(), String> {
 
 fn risk_json(pkg: &str) -> Result<(), String> {
     let pkg = safe_pkg(pkg)?;
-    
+
     let mut is_xposed = false;
     let mut reasons = Vec::new();
-    
+
     let targets = [
         "assets/xposed_init",
         "META-INF/xposed/java_init.list",
@@ -959,7 +959,11 @@ fn risk_json(pkg: &str) -> Result<(), String> {
     let response = RiskResponse {
         package: pkg,
         xposed_module: is_xposed,
-        risk_level: if is_xposed { "high".to_string() } else { "none".to_string() },
+        risk_level: if is_xposed {
+            "high".to_string()
+        } else {
+            "none".to_string()
+        },
         reasons,
         blocked_by_default: is_xposed,
     };
@@ -974,8 +978,8 @@ fn module_info_json() -> Result<(), String> {
         return Err(format!("module.prop does not exist at {}", path.display()));
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read module.prop: {}", e))?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read module.prop: {}", e))?;
 
     let mut map = BTreeMap::new();
     for line in content.lines() {
@@ -997,11 +1001,11 @@ fn verify_derived() -> Result<(), String> {
     let state = read_state()?;
     let root = moddir();
     let system_root = root.join("system").join(SYSTEM_TARGET);
-    
+
     let expected_description = build_description(&state);
     let actual_description = read_module_prop_description().unwrap_or_default();
     let desc_synced = actual_description == expected_description;
-    
+
     let keepalive_actual = read_keepalive_packages();
     let mut keepalive_expected: Vec<String> = state
         .apps
@@ -1012,7 +1016,7 @@ fn verify_derived() -> Result<(), String> {
     keepalive_expected.sort();
     keepalive_expected.dedup();
     let keepalive_synced = keepalive_expected == keepalive_actual;
-    
+
     let mut file_integrity = true;
     for (pkg, record) in &state.apps {
         let app_dir = system_root.join(pkg);
@@ -1030,11 +1034,11 @@ fn verify_derived() -> Result<(), String> {
             _ => {}
         }
     }
-    
+
     println!("description_synced={}", desc_synced);
     println!("keepalive_synced={}", keepalive_synced);
     println!("file_integrity={}", file_integrity);
-    
+
     Ok(())
 }
 
