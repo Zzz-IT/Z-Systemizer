@@ -1021,15 +1021,11 @@ fn verify_derived() -> Result<(), String> {
     for (pkg, record) in &state.apps {
         let app_dir = system_root.join(pkg);
         match record.status {
-            AppStatus::Active => {
-                if !app_dir.is_dir() {
-                    file_integrity = false;
-                }
+            AppStatus::Active if !app_dir.is_dir() => {
+                file_integrity = false;
             }
-            AppStatus::PendingRemove => {
-                if app_dir.is_dir() {
-                    file_integrity = false;
-                }
+            AppStatus::PendingRemove if app_dir.is_dir() => {
+                file_integrity = false;
             }
             _ => {}
         }
