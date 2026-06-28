@@ -877,9 +877,14 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
     for pkg in packages {
         let pkg = xml_escape(&pkg);
 
-        for tag in KEEPALIVE_TAGS {
-            xml.push_str(&format!("    <{} package=\"{}\" />\n", tag, pkg));
-        }
+        xml.push_str(&format!(
+            "    <allow-in-power-save package=\"{}\" />\n",
+            pkg
+        ));
+        xml.push_str(&format!(
+            "    <allow-in-power-save-except-idle package=\"{}\" />\n",
+            pkg
+        ));
     }
 
     xml.push_str("</config>\n");
