@@ -6,7 +6,6 @@ import {
   diagnose,
   rebootDevice,
   refreshDerived,
-  getRisk,
   getModuleInfo,
   type SystemizerState
 } from './api'
@@ -133,51 +132,7 @@ function visibleApps(): UiAppEntry[] {
   }))
 }
 
-const INITIAL_ICON_LIMIT = 16
-const INITIAL_ICON_TIMEOUT_MS = 900
 
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function preloadIcon(pkg: string): Promise<boolean> {
-  return new Promise(resolve => {
-    const img = new Image()
-    let done = false
-
-    const finish = (ok: boolean) => {
-      if (done) return
-      done = true
-      resolve(ok)
-    }
-
-    const timer = setTimeout(() => finish(false), INITIAL_ICON_TIMEOUT_MS)
-
-    img.onload = () => {
-      clearTimeout(timer)
-      finish(true)
-    }
-
-    img.onerror = () => {
-      clearTimeout(timer)
-      finish(false)
-    }
-
-    img.src = `ksu://icon/${pkg}`
-  })
-}
-
-async function preloadInitialIcons(apps: UiAppEntry[]): Promise<void> {
-  const first = apps.slice(0, INITIAL_ICON_LIMIT)
-
-  await Promise.race([
-    Promise.allSettled(first.map(async app => {
-      const ok = await preloadIcon(app.packageName)
-      if (ok) loadedIconPackages.add(app.packageName)
-    })).then(() => {}),
-    delay(INITIAL_ICON_TIMEOUT_MS),
-  ])
-}
 
 let iconObserver: IntersectionObserver | null = null
 const loadedIconPackages = new Set<string>()
@@ -477,25 +432,6 @@ async function toggleApp(app: UiAppEntry) {
   app.busy = true
   updateCardDOM(app.packageName)
 
-  try {
-    const risk = await getRisk(app.packageName)
-    if (risk.xposedModule) {
-      const ok = await showConfirm({
-        title: '高危应用提示',
-        message: '该应用是 LSPosed / Xposed 模块，不建议系统化。\n\n这类模块可能在 zygote、system_server、SystemUI 或 Android 框架进程中注入代码。\n系统化后如果作用域涉及系统进程，异常可能导致卡第二屏、卡开机动画或无法进入桌面。\n\n建议保持用户应用状态，并通过 LSPosed 管理模块启用状态。',
-        cancelText: '取消',
-        confirmText: '高级：继续系统化',
-        danger: true,
-      })
-      if (!ok) {
-        app.busy = false
-        updateCardDOM(app.packageName)
-        return
-      }
-    }
-  } catch (e) {
-    console.warn('Risk check failed, proceeding anyway', e)
-  }
 
   await doSystemize(app, '已记录待系统化', 'pending-add')
 }

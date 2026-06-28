@@ -10,6 +10,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const DEFAULT_MODDIR: &str = "/data/adb/modules/ksu-systemizer";
 const SYSTEM_TARGET: &str = "app";
 
+#[derive(Clone, Copy)]
+enum ApplyMode {
+    WebUi,
+    Install,
+    Manual,
+    PostFsData,
+}
+
+const KEEPALIVE_TAGS: &[&str] = &[
+    "allow-in-power-save",
+    "allow-in-power-save-except-idle",
+];
+
+type KeepaliveEntry = (String, String);
+
+
 fn moddir() -> PathBuf {
     env::var("SYSTEMIZER_MODDIR")
         .map(PathBuf::from)
@@ -323,7 +339,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
                 record.pending_boot_id = None;
 
                 write_state_atomic(&mut state)?;
-                after_state_changed(&state);
+                after_state_changed(&state, ApplyMode::WebUi);
 
                 println!(
                     "ok=true\npackage={}\ntarget={}\nrepaired=true\nreboot_required=false",
@@ -342,7 +358,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
             record.pending_boot_id = None;
 
             write_state_atomic(&mut state)?;
-            after_state_changed(&state);
+            after_state_changed(&state, ApplyMode::WebUi);
 
             println!(
                 "ok=true\npackage={}\ntarget={}\nrestored=true\nreboot_required=false",
@@ -395,7 +411,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     record.pending_boot_id = Some(get_boot_id());
 
     write_state_atomic(&mut state)?;
-    after_state_changed(&state);
+    after_state_changed(&state, ApplyMode::WebUi);
 
     println!(
         "ok=true\npackage={}\ntarget={}\nreboot_required=true",
@@ -429,7 +445,7 @@ fn unsystemize(pkg: &str) -> Result<(), String> {
         }
 
         write_state_atomic(&mut state)?;
-        after_state_changed(&state);
+        after_state_changed(&state, ApplyMode::WebUi);
         println!(
             "ok=true\npackage={}\nremoved=true\nreboot_required=true",
             pkg
@@ -564,36 +580,73 @@ fn reconcile(phase: &str) -> Result<(), String> {
         write_state_atomic(&mut state)?;
     }
 
+    let mode = match phase {
+        "manual" => ApplyMode::Manual,
+        "install" => ApplyMode::Install,
+        _ => ApplyMode::PostFsData,
+    };
     if phase != "post-fs-data" {
-        after_state_changed(&state);
+        after_state_changed(&state, mode);
         println!("reconcile phase={} completed.", phase);
     }
 
     Ok(())
 }
 
-fn read_keepalive_packages() -> Vec<String> {
-    let path = keepalive_sysconfig_path();
-    if !path.exists() {
-        return Vec::new();
-    }
-    let content = match fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
+use std::collections::BTreeSet;
 
-    let mut pkgs = Vec::new();
-    for line in content.lines() {
-        if let Some(pos) = line.find("<allow-in-power-save package=\"") {
-            let start = pos + "<allow-in-power-save package=\"".len();
-            if let Some(end) = line[start..].find('"') {
-                pkgs.push(line[start..start + end].to_string());
+fn expected_keepalive_packages(state: &StateFile) -> Vec<String> {
+    let mut packages: Vec<String> = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
+        .map(|r| r.package.clone())
+        .collect();
+
+    packages.sort();
+    packages.dedup();
+    packages
+}
+
+fn expected_keepalive_entries(state: &StateFile) -> BTreeSet<KeepaliveEntry> {
+    let mut entries = BTreeSet::new();
+
+    for record in state.apps.values() {
+        if record.status == AppStatus::Active || record.status == AppStatus::PendingAdd {
+            for tag in KEEPALIVE_TAGS {
+                entries.insert((tag.to_string(), record.package.clone()));
             }
         }
     }
-    pkgs.sort();
-    pkgs.dedup();
-    pkgs
+
+    entries
+}
+
+fn read_keepalive_entries() -> BTreeSet<KeepaliveEntry> {
+    let mut entries = BTreeSet::new();
+    let path = keepalive_sysconfig_path();
+
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return entries,
+    };
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        for tag in KEEPALIVE_TAGS {
+            let needle = format!("<{} package=\"", tag);
+            if let Some(pos) = line.find(&needle) {
+                let start = pos + needle.len();
+                if let Some(end) = line[start..].find('"') {
+                    let pkg = line[start..start + end].to_string();
+                    entries.insert((tag.to_string(), pkg));
+                }
+            }
+        }
+    }
+
+    entries
 }
 
 fn diagnose() -> Result<(), String> {
@@ -829,16 +882,7 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
     let dir = sysconfig_dir();
     create_dir(&dir)?;
 
-    let mut packages: Vec<String> = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
-        .map(|r| r.package.clone())
-        .collect();
-
-    packages.sort();
-    packages.dedup();
-
+    let packages = expected_keepalive_packages(state);
     let path = keepalive_sysconfig_path();
 
     if packages.is_empty() {
@@ -851,14 +895,12 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
     for pkg in packages {
         let pkg = xml_escape(&pkg);
 
-        xml.push_str(&format!(
-            "    <allow-in-power-save package=\"{}\" />\n",
-            pkg
-        ));
-        xml.push_str(&format!(
-            "    <allow-in-power-save-except-idle package=\"{}\" />\n",
-            pkg
-        ));
+        for tag in KEEPALIVE_TAGS {
+            xml.push_str(&format!(
+                "    <{} package=\"{}\" />\n",
+                tag, pkg
+            ));
+        }
     }
 
     xml.push_str("</config>\n");
@@ -872,18 +914,89 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
     Ok(())
 }
 
-fn after_state_changed(state: &StateFile) {
+fn sync_runtime_deviceidle_for_pkg(pkg: &str, enabled: bool) -> Result<(), String> {
+    let op = if enabled {
+        format!("+{}", pkg)
+    } else {
+        format!("-{}", pkg)
+    };
+
+    let output = Command::new("cmd")
+        .args(["deviceidle", "whitelist", op.as_str()])
+        .output()
+        .map_err(|e| format!("deviceidle command failed: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Err(if stderr.is_empty() { stdout } else { stderr })
+    }
+}
+
+fn sync_runtime_deviceidle(state: &StateFile) {
+    for pkg in expected_keepalive_packages(state) {
+        if let Err(e) = sync_runtime_deviceidle_for_pkg(&pkg, true) {
+            eprintln!("warn=deviceidle_add_failed");
+            eprintln!("deviceidle_package={}", pkg);
+            eprintln!("deviceidle_error={}", e);
+        }
+    }
+
+    for record in state.apps.values() {
+        if record.status == AppStatus::PendingRemove {
+            if let Err(e) = sync_runtime_deviceidle_for_pkg(&record.package, false) {
+                eprintln!("warn=deviceidle_remove_failed");
+                eprintln!("deviceidle_package={}", record.package);
+                eprintln!("deviceidle_error={}", e);
+            }
+        }
+    }
+}
+
+fn set_standby_bucket_active(pkg: &str) -> Result<(), String> {
+    let output = Command::new("am")
+        .args(["set-standby-bucket", pkg, "active"])
+        .output()
+        .map_err(|e| format!("am set-standby-bucket failed: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Err(if stderr.is_empty() { stdout } else { stderr })
+    }
+}
+
+fn sync_standby_buckets(state: &StateFile) {
+    for pkg in expected_keepalive_packages(state) {
+        if let Err(e) = set_standby_bucket_active(&pkg) {
+            eprintln!("warn=standby_bucket_failed");
+            eprintln!("standby_bucket_package={}", pkg);
+            eprintln!("standby_bucket_error={}", e);
+        }
+    }
+}
+
+fn after_state_changed(state: &StateFile, mode: ApplyMode) {
     update_description(state);
 
     if let Err(e) = update_aosp_keepalive_sysconfig(state) {
         eprintln!("warn=failed_to_update_aosp_keepalive_sysconfig");
         eprintln!("keepalive_error={}", e);
     }
+
+    if matches!(mode, ApplyMode::WebUi | ApplyMode::Manual) {
+        sync_runtime_deviceidle(state);
+        sync_standby_buckets(state);
+    }
 }
 
 fn refresh_derived() -> Result<(), String> {
     let state = read_state()?;
-    after_state_changed(&state);
+    after_state_changed(&state, ApplyMode::Manual);
     println!("ok=true");
     Ok(())
 }
@@ -1001,39 +1114,48 @@ fn verify_derived() -> Result<(), String> {
     let state = read_state()?;
     let root = moddir();
     let system_root = root.join("system").join(SYSTEM_TARGET);
+    let apks_root = root.join("state").join("apks");
 
     let expected_description = build_description(&state);
     let actual_description = read_module_prop_description().unwrap_or_default();
     let desc_synced = actual_description == expected_description;
 
-    let keepalive_actual = read_keepalive_packages();
-    let mut keepalive_expected: Vec<String> = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
-        .map(|r| r.package.clone())
-        .collect();
-    keepalive_expected.sort();
-    keepalive_expected.dedup();
+    let keepalive_actual = read_keepalive_entries();
+    let keepalive_expected = expected_keepalive_entries(&state);
     let keepalive_synced = keepalive_expected == keepalive_actual;
 
     let mut file_integrity = true;
+    let mut cache_integrity = true;
     for (pkg, record) in &state.apps {
         let app_dir = system_root.join(pkg);
+        let apk_dir = apks_root.join(pkg);
+        
         match record.status {
-            AppStatus::Active if !app_dir.is_dir() => {
-                file_integrity = false;
+            AppStatus::Active | AppStatus::PendingAdd => {
+                if !app_dir.is_dir() {
+                    file_integrity = false;
+                    println!("file_system_app_missing={}", pkg);
+                }
+                if !apk_dir.is_dir() {
+                    cache_integrity = false;
+                    println!("cache_missing_package={}", pkg);
+                }
             }
-            AppStatus::PendingRemove if app_dir.is_dir() => {
-                file_integrity = false;
+            AppStatus::PendingRemove => {
+                if app_dir.is_dir() {
+                    file_integrity = false;
+                    println!("file_pending_remove_system_app_exists={}", pkg);
+                }
             }
-            _ => {}
         }
     }
 
     println!("description_synced={}", desc_synced);
     println!("keepalive_synced={}", keepalive_synced);
+    println!("keepalive_expected_entries={}", keepalive_expected.len());
+    println!("keepalive_actual_entries={}", keepalive_actual.len());
     println!("file_integrity={}", file_integrity);
+    println!("cache_integrity={}", cache_integrity);
 
     Ok(())
 }
