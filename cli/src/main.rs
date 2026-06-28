@@ -648,131 +648,111 @@ fn read_keepalive_entries() -> BTreeSet<KeepaliveEntry> {
 fn diagnose() -> Result<(), String> {
     let state = read_state()?;
     let root = moddir();
+
+    println!("module_dir={}", root.display());
+    println!("boot_id={}", get_boot_id());
+    println!("schema_version={}", state.schema_version);
+    println!("apps_count={}", state.apps.len());
+
+    let mut has_pending = false;
+    for record in state.apps.values() {
+        if record.status == AppStatus::PendingAdd || record.status == AppStatus::PendingRemove {
+            has_pending = true;
+            break;
+        }
+    }
+    println!("reboot_required={}", has_pending);
+
     let system_root = root.join("system").join(SYSTEM_TARGET);
     let apks_root = root.join("state").join("apks");
 
-    println!("moddir={}", root.display());
-    println!("moddir_exists={}", root.is_dir());
-    println!("system_app_dir_exists={}", system_root.is_dir());
-    println!("state_file_exists={}", state_file_path().is_file());
-    println!(
-        "state_backup_exists={}",
-        state_file_path().with_extension("json.bak").is_file()
-    );
-    println!("state_schema_version={}", state.schema_version);
-    println!("boot_id={}", get_boot_id());
-    println!("state_boot_id={}", state.boot_id);
-    println!("state_apps={}", state.apps.len());
+    let expected_description = build_description(&state);
+    let actual_description = read_module_prop_description().unwrap_or_default();
+    let desc_synced = actual_description == expected_description;
+    
+    let keepalive_actual = read_keepalive_entries();
+    let keepalive_expected = expected_keepalive_entries(&state);
+    let keepalive_synced = keepalive_expected == keepalive_actual;
 
-    let active = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::Active)
-        .count();
-    let pending_add = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::PendingAdd)
-        .count();
-    let pending_remove = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::PendingRemove)
-        .count();
-
-    println!("state_active={}", active);
-    println!("state_pending_add={}", pending_add);
-    println!("state_pending_remove={}", pending_remove);
-
-    let mut cache_missing = 0;
-    let mut system_missing = 0;
-    let mut pending_remove_system_exists = 0;
+    let mut file_integrity = true;
+    let mut cache_integrity = true;
 
     for (pkg, record) in &state.apps {
-        let app_dir = system_root.join(pkg);
-        let cache_dir = apks_root.join(pkg);
-        let cache_exists = cache_dir.is_dir();
-        let system_exists = app_dir.is_dir();
+        println!("app_package={}", pkg);
+        println!("  target={}", record.target);
+        println!("  status={:?}", record.status);
 
+        let system_app_dir = system_root.join(pkg);
+        let system_app_exists = system_app_dir.is_dir();
+        println!("  system_app_exists={}", system_app_exists);
+
+        let state_apks_dir = apks_root.join(pkg);
+        let state_apks_exists = state_apks_dir.is_dir();
+        println!("  state_apks_exists={}", state_apks_exists);
+        
         match record.status {
             AppStatus::Active | AppStatus::PendingAdd => {
-                if !cache_exists {
-                    cache_missing += 1;
-                    println!("app_cache_missing={}", pkg);
-                }
-
-                if !system_exists {
-                    system_missing += 1;
-                    println!("app_system_missing={}", pkg);
-                }
+                if !system_app_exists { file_integrity = false; }
+                if !state_apks_exists { cache_integrity = false; }
             }
             AppStatus::PendingRemove => {
-                if system_exists {
-                    pending_remove_system_exists += 1;
-                    println!("app_pending_remove_system_dir_exists={}", pkg);
-                }
+                if system_app_exists { file_integrity = false; }
             }
         }
     }
-
-    println!("cache_missing_count={}", cache_missing);
-    println!("system_app_missing_count={}", system_missing);
-    println!(
-        "pending_remove_system_dir_exists_count={}",
-        pending_remove_system_exists
-    );
-
-    println!(
-        "keepalive_sysconfig_exists={}",
-        keepalive_sysconfig_path().is_file()
-    );
-    let keepalive_count = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
-        .count();
-    println!("keepalive_packages={}", keepalive_count);
-
-    let actual_keepalive = read_keepalive_packages();
-    let mut expected_keepalive: Vec<String> = state
-        .apps
-        .values()
-        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
-        .map(|r| r.package.clone())
-        .collect();
-    expected_keepalive.sort();
-    expected_keepalive.dedup();
-
-    let synced = expected_keepalive == actual_keepalive;
-    println!("keepalive_expected_packages={}", expected_keepalive.len());
-    println!("keepalive_actual_packages={}", actual_keepalive.len());
-    println!("keepalive_synced={}", synced);
-
-    for pkg in &expected_keepalive {
-        if !actual_keepalive.contains(pkg) {
-            println!("keepalive_missing_package={}", pkg);
-        }
+    
+    println!("derived_description_synced={}", desc_synced);
+    println!("derived_keepalive_synced={}", keepalive_synced);
+    println!("derived_file_integrity={}", file_integrity);
+    println!("derived_cache_integrity={}", cache_integrity);
+    
+    println!("keepalive_expected_entries={}", keepalive_expected.len());
+    println!("keepalive_actual_entries={}", keepalive_actual.len());
+    
+    for (tag, pkg) in keepalive_expected.difference(&keepalive_actual) {
+        println!("keepalive_missing_entry={}:{}", tag, pkg);
     }
-    for pkg in &actual_keepalive {
-        if !expected_keepalive.contains(pkg) {
-            println!("keepalive_extra_package={}", pkg);
+    for (tag, pkg) in keepalive_actual.difference(&keepalive_expected) {
+        println!("keepalive_extra_entry={}:{}", tag, pkg);
+    }
+
+    println!("deviceidle_runtime_checked=true");
+    let deviceidle_output = Command::new("cmd")
+        .args(["deviceidle", "whitelist"])
+        .output();
+        
+    let deviceidle_whitelist = if let Ok(out) = deviceidle_output {
+        if out.status.success() {
+            String::from_utf8_lossy(&out.stdout).to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    
+    let expected_pkgs = expected_keepalive_packages(&state);
+    for pkg in &expected_pkgs {
+        let contains = deviceidle_whitelist.contains(pkg);
+        println!("deviceidle_runtime_contains_package={}:{}", pkg, contains);
+        if !contains {
+            println!("deviceidle_runtime_missing_package={}", pkg);
         }
     }
 
-    let expected_description = build_description(&state);
-    let actual_description = read_module_prop_description();
-
-    println!("module_prop_exists={}", module_prop_path().is_file());
-    println!(
-        "module_prop_description_synced={}",
-        actual_description.as_deref() == Some(expected_description.as_str())
-    );
-
-    if let Some(desc) = actual_description {
-        println!("module_prop_description={}", desc);
+    println!("standby_bucket_checked=true");
+    for pkg in &expected_pkgs {
+        let output = Command::new("am")
+            .args(["get-standby-bucket", pkg])
+            .output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let val = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                println!("standby_bucket_package={}", pkg);
+                println!("standby_bucket_value={}", val);
+            }
+        }
     }
-
-    println!("module_prop_description_expected={}", expected_description);
 
     Ok(())
 }
