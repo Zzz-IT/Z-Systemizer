@@ -1,18 +1,14 @@
-## v1.1.6
+# Z-Systemizer v1.2.0
 
-### Changed
-- `api.ts` 改用 `refresh-derived` 替代 `refresh-description`
-- 卡片展开高度从 104px 调整为 160px
-- 首屏图标预热时间从 650ms 调整为 900ms
+### 新特性与核心架构升级
+- **交互与状态流重构**：全面重写了应用列表的状态管理与同步机制。状态变更现已调整为毫秒级立即响应，应用过滤与检索完全基于本地渲染，显著消除了 UI 阻塞，提供了无缝流畅的操作体验。
+- **运行时环境安全管控 (Fail-Soft)**：引入上下文感知 (`ApplyMode`) 执行策略，实现核心状态与 Android 底层系统的深层对接。系统化应用的存活状态现已自动双向同步至系统的设备空闲白名单（`deviceidle whitelist`）与待机休眠桶（`standby bucket`），确保后台权限严格收敛。
+- **AOSP Sysconfig 规则固化**：重构了 Keepalive 生成器，确保系统底层 XML 仅写入安全、标准的 AOSP 保活规则（`allow-in-power-save` 等），从根源杜绝越权风险。
 
-### Fixed
-- 修复 CI 中 `.hidden` / `.empty-state` grep 转义错误
-- 移除不确定的 `allow-in-data-usage-save` sysconfig 标签，仅保留 AOSP 明确支持的标签
-- 增强 `diagnose` 命令输出 module.prop description 同步状态
-- 重置图标时清理 `img.onload` / `img.onerror` 避免旧处理器干扰
-- cargo fmt 格式修复
-
-### Added
-- CI 增加 `allow-in-data-usage-save` 禁用检查
-- CI 增加 WebUI 使用 `refresh-derived` 检查
-- `diagnose` 新增 `module_prop_description_synced` 字段
+### 诊断功能与稳定性提升
+- **深度内核状态核验**：诊断工具（`diagnose`）获大幅度增强。支持从应用系统层、APK 缓存层到系统内核运行时状态的细粒度扫描，帮助开发者精准定位偏差。
+- **细节体验优化**：
+  - 移除了冗余的组件重载逻辑，规范了数据交互接口。
+  - 为底层报错和高级验证引入了专用的长文本防溢出渲染视图。
+  - 移除了针对常规模块的干扰性弹窗警告。
+- **构建质量与代码规范**：修正了历史遗留的多线程状态渲染竞争问题；利用更严格的 `clippy` 与 `rustfmt` 管道规则治理了全部底层代码，为模块长期演进提供了坚实的架构基础。

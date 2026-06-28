@@ -48,8 +48,8 @@ jobs:
           # AOSP Keepalive XML 生成代码必须存在
           grep -q 'fn update_aosp_keepalive_sysconfig' cli/src/main.rs
           grep -q 'keepalive_sysconfig_path' cli/src/main.rs
-          grep -q 'allow-in-power-save' cli/src/main.rs
-          grep -q 'allow-in-power-save-except-idle' cli/src/main.rs
+          grep -q '"allow-in-power-save"' cli/src/main.rs
+          grep -q '"allow-in-power-save-except-idle"' cli/src/main.rs
 
           # 不应使用不确定的 sysconfig 标签
           if grep -q 'allow-in-data-usage-save' cli/src/main.rs; then

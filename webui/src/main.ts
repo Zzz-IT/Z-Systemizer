@@ -429,10 +429,6 @@ async function toggleApp(app: UiAppEntry) {
     return
   }
 
-  app.busy = true
-  updateCardDOM(app.packageName)
-
-
   await doSystemize(app, '已记录待系统化', 'pending-add')
 }
 
