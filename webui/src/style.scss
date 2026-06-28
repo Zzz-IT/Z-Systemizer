@@ -321,9 +321,13 @@ button {
     transform 0.26s cubic-bezier(.2, .8, .2, 1),
     border-radius 0.18s ease,
     background 0.16s ease;
-  transition-delay: var(--enter-delay, 0ms), var(--enter-delay, 0ms), 0s, 0s;
+  transition-delay:
+    var(--enter-delay, 0s),
+    var(--enter-delay, 0s),
+    0s,
+    0s;
 
-  &:active {
+  &:active:not(:has(.switch:active)) {
     background: var(--surface-pressed);
   }
 
@@ -547,9 +551,6 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition:
-    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 180ms ease;
   will-change: height, opacity;
   pointer-events: none;
 }

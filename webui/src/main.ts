@@ -338,12 +338,13 @@ function render() {
 
     if (!card) {
       card = createCardElement(app, index)
+      card.style.order = String(index)
       renderedCards.set(app.packageName, card)
       list.appendChild(card)
       requestAnimationFrame(() => card!.classList.add('enter-done'))
     } else {
       updateCardElement(card, app)
-      list.appendChild(card)
+      card.style.order = String(index)
     }
   })
 
@@ -783,14 +784,14 @@ function bindEvents() {
       const info = await getModuleInfo()
       showConfirm({
         title: '关于 Z-Systemizer',
-        htmlMessage: `Z-Systemizer 模块 WebUI<br>版本: ${escapeHtml(info.version)}<br>${escapeHtml(info.description)}<br><br><a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">★ 访问 GitHub 仓库</a>`,
+        htmlMessage: `Z-Systemizer 模块 WebUI<br>版本: ${escapeHtml(info.version)}<br>${escapeHtml(info.description)}<br><br><a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">访问 GitHub 仓库</a>`,
         cancelText: '关闭',
         confirmText: '确定'
       })
     } catch (e) {
       showConfirm({
         title: '关于 Z-Systemizer',
-        htmlMessage: `Z-Systemizer 模块 WebUI<br>版本: 1.2.0<br>持久状态与自动同步<br>(获取模块信息失败: ${escapeHtml(errorMessage(e))})<br><br><a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">★ 访问 GitHub 仓库</a>`,
+        htmlMessage: `Z-Systemizer 模块 WebUI<br>版本: 1.2.0<br>持久状态与自动同步<br>(获取模块信息失败: ${escapeHtml(errorMessage(e))})<br><br><a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">访问 GitHub 仓库</a>`,
         cancelText: '关闭',
         confirmText: '确定'
       })
