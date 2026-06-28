@@ -669,7 +669,7 @@ fn diagnose() -> Result<(), String> {
     let expected_description = build_description(&state);
     let actual_description = read_module_prop_description().unwrap_or_default();
     let desc_synced = actual_description == expected_description;
-    
+
     let keepalive_actual = read_keepalive_entries();
     let keepalive_expected = expected_keepalive_entries(&state);
     let keepalive_synced = keepalive_expected == keepalive_actual;
@@ -689,26 +689,32 @@ fn diagnose() -> Result<(), String> {
         let state_apks_dir = apks_root.join(pkg);
         let state_apks_exists = state_apks_dir.is_dir();
         println!("  state_apks_exists={}", state_apks_exists);
-        
+
         match record.status {
             AppStatus::Active | AppStatus::PendingAdd => {
-                if !system_app_exists { file_integrity = false; }
-                if !state_apks_exists { cache_integrity = false; }
+                if !system_app_exists {
+                    file_integrity = false;
+                }
+                if !state_apks_exists {
+                    cache_integrity = false;
+                }
             }
             AppStatus::PendingRemove => {
-                if system_app_exists { file_integrity = false; }
+                if system_app_exists {
+                    file_integrity = false;
+                }
             }
         }
     }
-    
+
     println!("derived_description_synced={}", desc_synced);
     println!("derived_keepalive_synced={}", keepalive_synced);
     println!("derived_file_integrity={}", file_integrity);
     println!("derived_cache_integrity={}", cache_integrity);
-    
+
     println!("keepalive_expected_entries={}", keepalive_expected.len());
     println!("keepalive_actual_entries={}", keepalive_actual.len());
-    
+
     for (tag, pkg) in keepalive_expected.difference(&keepalive_actual) {
         println!("keepalive_missing_entry={}:{}", tag, pkg);
     }
@@ -720,7 +726,7 @@ fn diagnose() -> Result<(), String> {
     let deviceidle_output = Command::new("cmd")
         .args(["deviceidle", "whitelist"])
         .output();
-        
+
     let deviceidle_whitelist = if let Ok(out) = deviceidle_output {
         if out.status.success() {
             String::from_utf8_lossy(&out.stdout).to_string()
@@ -730,7 +736,7 @@ fn diagnose() -> Result<(), String> {
     } else {
         String::new()
     };
-    
+
     let expected_pkgs = expected_keepalive_packages(&state);
     for pkg in &expected_pkgs {
         let contains = deviceidle_whitelist.contains(pkg);
