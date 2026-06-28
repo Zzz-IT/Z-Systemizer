@@ -6,6 +6,8 @@ import {
   diagnose,
   rebootDevice,
   refreshDerived,
+  getRisk,
+  getModuleInfo,
   type SystemizerState
 } from './api'
 import { buildUiApps, hasPending, mergeBusyState, type UiAppEntry } from './state'
@@ -17,6 +19,38 @@ const state = {
   onlySystemized: false,
   globalBusy: false,
   rawState: null as SystemizerState | null,
+}
+
+const baselineStatus = new Map<string, UiAppEntry['status']>()
+const dirtyPackages = new Set<string>()
+
+function captureBaseline() {
+  baselineStatus.clear()
+  dirtyPackages.clear()
+  for (const app of state.apps) {
+    baselineStatus.set(app.packageName, app.status)
+  }
+  updateRefreshHint()
+}
+
+function markDirtyState(app: UiAppEntry) {
+  const baseline = baselineStatus.get(app.packageName) ?? 'normal'
+  if (app.status === baseline) {
+    dirtyPackages.delete(app.packageName)
+  } else {
+    dirtyPackages.add(app.packageName)
+  }
+  updateRefreshHint()
+}
+
+function updateRefreshHint() {
+  const statusLine = document.querySelector<HTMLElement>('.status-line')
+  if (!statusLine) return
+  if (dirtyPackages.size > 0) {
+    statusLine.textContent = '列表待刷新'
+  } else {
+    statusLine.textContent = `已加载 ${state.apps.length} 个应用`
+  }
 }
 
 const renderedCards = new Map<string, HTMLElement>()
@@ -440,40 +474,79 @@ async function toggleApp(app: UiAppEntry) {
     return
   }
 
+  app.busy = true
+  updateCardDOM(app.packageName)
+
+  try {
+    const risk = await getRisk(app.packageName)
+    if (risk.xposedModule) {
+      const ok = await showConfirm({
+        title: '高危应用提示',
+        message: '该应用是 LSPosed / Xposed 模块，不建议系统化。\n\n这类模块可能在 zygote、system_server、SystemUI 或 Android 框架进程中注入代码。\n系统化后如果作用域涉及系统进程，异常可能导致卡第二屏、卡开机动画或无法进入桌面。\n\n建议保持用户应用状态，并通过 LSPosed 管理模块启用状态。',
+        cancelText: '取消',
+        confirmText: '高级：继续系统化',
+        danger: true,
+      })
+      if (!ok) {
+        app.busy = false
+        updateCardDOM(app.packageName)
+        return
+      }
+    }
+  } catch (e) {
+    console.warn('Risk check failed, proceeding anyway', e)
+  }
+
   await doSystemize(app, '已记录待系统化', 'pending-add')
 }
 
-async function doSystemize(app: UiAppEntry, msg: string, nextStatus: UiAppEntry['status']) {
+async function doSystemize(
+  app: UiAppEntry,
+  msg: string,
+  nextStatus: UiAppEntry['status'],
+) {
   app.busy = true
   updateCardDOM(app.packageName)
 
   try {
     await systemize(app.packageName)
-    toast(msg)
+
     app.busy = false
     app.status = nextStatus
+
     updateCardDOM(app.packageName)
+    markDirtyState(app)
+
+    toast(msg)
   } catch (e) {
-    toast(errorMessage(e))
     app.busy = false
     updateCardDOM(app.packageName)
+    toast(errorMessage(e))
   }
 }
 
-async function doUnsystemize(app: UiAppEntry, msg: string, nextStatus: UiAppEntry['status']) {
+async function doUnsystemize(
+  app: UiAppEntry,
+  msg: string,
+  nextStatus: UiAppEntry['status'],
+) {
   app.busy = true
   updateCardDOM(app.packageName)
 
   try {
     await unsystemize(app.packageName)
-    toast(msg)
+
     app.busy = false
     app.status = nextStatus
+
     updateCardDOM(app.packageName)
+    markDirtyState(app)
+
+    toast(msg)
   } catch (e) {
-    toast(errorMessage(e))
     app.busy = false
     updateCardDOM(app.packageName)
+    toast(errorMessage(e))
   }
 }
 
@@ -552,6 +625,7 @@ function showConfirm(options: {
   cancelText: string
   confirmText: string
   danger?: boolean
+  diagnostic?: boolean
 }): Promise<boolean> {
   return new Promise(resolve => {
     if (document.querySelector('.dialog-backdrop')) {
@@ -560,7 +634,7 @@ function showConfirm(options: {
     }
 
     const dialog = document.createElement('div')
-    dialog.className = 'dialog-backdrop'
+    dialog.className = `dialog-backdrop ${options.diagnostic ? 'is-diagnostic' : ''}`
     dialog.innerHTML = `
       <div class="dialog">
         <div class="dialog-title">${escapeHtml(options.title)}</div>
@@ -601,26 +675,37 @@ async function loadDiagnoseDialog() {
       msg += `\n\n--- UI 状态映射 ---\n已系统化: ${active}\n待系统化: ${pendingAdd}\n待移除: ${pendingRemove}\n`
     }
 
-    await showConfirm({
+    const shouldRefresh = await showConfirm({
       title: '诊断信息',
       message: msg,
       cancelText: '关闭',
       confirmText: '刷新',
+      diagnostic: true,
     })
+
+    if (shouldRefresh) {
+      refresh('diagnose').catch(showFatalError)
+    }
   } catch (e) {
     toast(errorMessage(e))
   }
 }
 
-async function refresh() {
+type RefreshMode = 'initial' | 'manual' | 'pull' | 'empty-search' | 'diagnose'
+
+async function refresh(mode: RefreshMode = 'manual') {
   if (state.globalBusy) return
 
   state.globalBusy = true
 
-  showAppLoading()
-
   const statusLine = document.querySelector<HTMLElement>('.status-line')
-  if (statusLine) statusLine.textContent = '正在刷新...'
+
+  if (mode === 'pull') {
+    if (statusLine) statusLine.textContent = '正在刷新...'
+  } else {
+    showAppLoading()
+    if (statusLine) statusLine.textContent = '正在刷新...'
+  }
 
   try {
     const oldApps = state.apps
@@ -634,10 +719,7 @@ async function refresh() {
     nextApps = mergeBusyState(nextApps, oldApps)
 
     state.apps = nextApps
-
-    const firstScreenApps = visibleApps()
-
-    await preloadInitialIcons(firstScreenApps)
+    captureBaseline()
 
     if (statusLine) {
       statusLine.textContent = `已加载 ${state.apps.length} 个应用`
@@ -654,27 +736,30 @@ async function refresh() {
 }
 
 function bindEvents() {
+  const searchInput = document.querySelector<HTMLInputElement>('.search-input')!
   let searchTimeout: ReturnType<typeof setTimeout>
-  let lastFilter = ''
 
-  document.querySelector<HTMLInputElement>('.search-input')!.oninput = e => {
+  searchInput.oninput = e => {
     clearTimeout(searchTimeout)
 
     searchTimeout = setTimeout(() => {
-      const value = (e.target as HTMLInputElement).value
-      const wasNonEmpty = lastFilter.trim().length > 0
-      const isEmpty = value.trim().length === 0
-
-      state.filter = value
-      lastFilter = value
-
-      if (wasNonEmpty && isEmpty) {
-        refresh().catch(showFatalError)
-        return
-      }
-
+      state.filter = (e.target as HTMLInputElement).value
       render()
-    }, 250)
+    }, 180)
+  }
+
+  searchInput.onkeydown = e => {
+    if (e.key !== 'Enter') return
+
+    state.filter = searchInput.value
+
+    if (searchInput.value.trim() === '') {
+      refresh('empty-search').catch(showFatalError)
+    } else {
+      render()
+    }
+
+    searchInput.blur()
   }
 
   $('.refresh-button').onclick = () => {
@@ -738,69 +823,120 @@ function bindEvents() {
     toast('已重新加载图标')
   }
 
-  document.getElementById('menu-about')!.onclick = () => {
+  document.getElementById('menu-about')!.onclick = async () => {
     dropdownMenu.classList.remove('show')
-    showConfirm({
-      title: '关于 Z-Systemizer',
-      message: 'Z-Systemizer 模块 WebUI\n版本: 1.1.6\n持久状态与自动同步',
-      cancelText: '关闭',
-      confirmText: '确定'
-    })
+    try {
+      const info = await getModuleInfo()
+      showConfirm({
+        title: '关于 Z-Systemizer',
+        message: `Z-Systemizer 模块 WebUI\n版本: ${info.version}\n${info.description}`,
+        cancelText: '关闭',
+        confirmText: '确定'
+      })
+    } catch (e) {
+      showConfirm({
+        title: '关于 Z-Systemizer',
+        message: `Z-Systemizer 模块 WebUI\n版本: 1.1.6\n持久状态与自动同步\n(获取模块信息失败: ${errorMessage(e)})`,
+        cancelText: '关闭',
+        confirmText: '确定'
+      })
+    }
   }
 
-  // Pull to Refresh Logic
-  let touchStartY = 0
-  let isPulling = false
-  const ptrIndicator = document.querySelector<HTMLElement>('.ptr-indicator')!
-  const ptrSpinner = document.querySelector<HTMLElement>('.ptr-spinner')!
-  const THRESHOLD = 60
+  // Pull to Refresh Logic (bound to .app-region)
+  const region = document.querySelector<HTMLElement>('.app-region')!
+  const indicator = document.querySelector<HTMLElement>('.ptr-indicator')!
+  const spinner = document.querySelector<HTMLElement>('.ptr-spinner')!
 
-  document.addEventListener('touchstart', (e) => {
-    if (window.scrollY === 0) {
-      touchStartY = e.touches[0].clientY
-      isPulling = true
-    } else {
-      isPulling = false
-    }
+  let startX = 0
+  let startY = 0
+  let pulling = false
+  let distance = 0
+
+  const threshold = 72
+  const maxPull = 112
+
+  function ignored(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement
+      && !!target.closest('input, button, .dialog-backdrop, .dropdown-menu')
+  }
+
+  function setPull(value: number, active: boolean) {
+    distance = Math.max(0, Math.min(value, maxPull))
+
+    indicator.style.height = `${distance}px`
+    indicator.style.opacity = String(Math.min(distance / threshold, 1))
+    spinner.classList.toggle('active', active)
+  }
+
+  function releasePull() {
+    indicator.classList.add('is-releasing')
+    indicator.style.height = '0px'
+    indicator.style.opacity = '0'
+    spinner.classList.remove('active')
+
+    window.setTimeout(() => {
+      indicator.classList.remove('is-releasing')
+    }, 280)
+  }
+
+  region.addEventListener('touchstart', e => {
+    if (state.globalBusy) return
+    if (ignored(e.target)) return
+    if (window.scrollY !== 0) return
+
+    const touch = e.touches[0]
+    startX = touch.clientX
+    startY = touch.clientY
+    pulling = true
+    distance = 0
   }, { passive: true })
 
-  document.addEventListener('touchmove', (e) => {
-    if (!isPulling || state.globalBusy) return
-    const currentY = e.touches[0].clientY
-    const pullDistance = currentY - touchStartY
+  region.addEventListener('touchmove', e => {
+    if (!pulling || state.globalBusy) return
 
-    if (pullDistance > 0 && window.scrollY === 0) {
-      e.preventDefault()
-      const height = Math.min(pullDistance * 0.4, THRESHOLD + 20)
-      ptrIndicator.style.height = `${height}px`
-      
-      if (height > THRESHOLD) {
-        ptrSpinner.classList.add('active')
-      } else {
-        ptrSpinner.classList.remove('active')
-      }
-    }
+    const touch = e.touches[0]
+    const dx = touch.clientX - startX
+    const dy = touch.clientY - startY
+
+    if (dy <= 0) return
+    if (Math.abs(dx) > Math.abs(dy)) return
+
+    e.preventDefault()
+
+    const eased = Math.min(Math.pow(dy, 0.82), maxPull)
+    setPull(eased, eased >= threshold)
   }, { passive: false })
 
-  document.addEventListener('touchend', () => {
-    if (!isPulling) return
-    isPulling = false
-    const currentHeight = parseInt(ptrIndicator.style.height || '0', 10)
+  region.addEventListener('touchend', () => {
+    if (!pulling) return
+    pulling = false
 
-    if (currentHeight > THRESHOLD && !state.globalBusy) {
-      ptrIndicator.style.height = `${THRESHOLD}px`
-      refresh().then(() => {
-        ptrIndicator.style.height = '0px'
-        ptrSpinner.classList.remove('active')
-      }).catch((e) => {
-        showFatalError(e)
-        ptrIndicator.style.height = '0px'
-        ptrSpinner.classList.remove('active')
-      })
-    } else {
-      ptrIndicator.style.height = '0px'
-      ptrSpinner.classList.remove('active')
+    if (distance < threshold || state.globalBusy) {
+      releasePull()
+      return
     }
+
+    indicator.classList.add('is-refreshing')
+    indicator.style.height = `${threshold}px`
+    indicator.style.opacity = '1'
+    spinner.classList.add('active')
+
+    const statusLine = document.querySelector<HTMLElement>('.status-line')
+    if (statusLine) statusLine.textContent = '正在刷新...'
+
+    refresh('pull')
+      .catch(showFatalError)
+      .finally(() => {
+        indicator.classList.remove('is-refreshing')
+        releasePull()
+      })
+  })
+
+  region.addEventListener('touchcancel', () => {
+    if (!pulling) return
+    pulling = false
+    releasePull()
   })
 }
 

@@ -48,24 +48,26 @@
     </section>
 
     <section class="search-card">
-      <input type="text" class="search-input" placeholder="搜索包名或应用名..." />
+      <input type="search" class="search-input" placeholder="搜索包名或应用名..." enterkeyhint="search" />
     </section>
 
-    <div class="ptr-indicator">
-      <div class="ptr-spinner"></div>
-    </div>
+    <section class="app-region">
+      <div class="ptr-indicator">
+        <div class="ptr-spinner"></div>
+      </div>
 
-    <div class="status-line">正在加载应用列表...</div>
+      <div class="status-line">正在加载应用列表...</div>
 
-    <section class="loading-state">
-      正在准备应用列表...
+      <section class="loading-state">
+        正在准备应用列表...
+      </section>
+
+      <section class="empty-state hidden">
+        暂无可显示应用
+      </section>
+
+      <section class="app-list is-loading" aria-live="polite"></section>
     </section>
-
-    <section class="empty-state hidden">
-      暂无可显示应用
-    </section>
-
-    <section class="app-list is-loading" aria-live="polite"></section>
   </div>
 
   <button class="reboot-fab" aria-label="重启设备">

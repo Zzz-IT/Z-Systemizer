@@ -95,12 +95,16 @@ export async function getAppsSafe(): Promise<AppEntry[]> {
   }
 }
 
+function shQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
 export async function systemize(pkg: string): Promise<void> {
-  await shell(`${CLI} systemize ${pkg} app`)
+  await shell(`${CLI} systemize ${shQuote(pkg)} app`)
 }
 
 export async function unsystemize(pkg: string): Promise<void> {
-  await shell(`${CLI} unsystemize ${pkg}`)
+  await shell(`${CLI} unsystemize ${shQuote(pkg)}`)
 }
 
 export async function rebootDevice(): Promise<void> {
@@ -109,4 +113,31 @@ export async function rebootDevice(): Promise<void> {
 
 export async function refreshDerived(): Promise<void> {
   await shell(`${CLI} refresh-derived`)
+}
+
+export interface RiskInfo {
+  package: string
+  xposedModule: boolean
+  riskLevel: 'high' | 'none'
+  reasons: string[]
+  blockedByDefault: boolean
+}
+
+export async function getRisk(pkg: string): Promise<RiskInfo> {
+  const out = await shell(`${CLI} risk-json ${shQuote(pkg)}`)
+  return JSON.parse(out)
+}
+
+export interface ModuleInfo {
+  id: string
+  name: string
+  version: string
+  versionCode: number
+  description: string
+  [key: string]: any
+}
+
+export async function getModuleInfo(): Promise<ModuleInfo> {
+  const out = await shell(`${CLI} module-info-json`)
+  return JSON.parse(out)
 }

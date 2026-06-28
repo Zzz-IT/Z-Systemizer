@@ -236,13 +236,22 @@ fn create_dir(path: &Path) -> Result<(), String> {
     set_file_perm(path, 0o755)
 }
 
-fn sync_dir(src: &Path, dst: &Path) -> Result<(), String> {
-    let _ = fs::remove_dir_all(dst);
-    create_dir(dst)?;
-
+fn sync_dir(src: &Path, dst: &Path, apply_context: bool) -> Result<(), String> {
     if !src.is_dir() {
         return Err(format!("src is not a directory: {}", src.display()));
     }
+
+    let parent = dst.parent().ok_or_else(|| "bad dst".to_string())?;
+    create_dir(parent)?;
+
+    let tmp = parent.join(format!(
+        ".{}.{}.tmp",
+        dst.file_name().unwrap().to_string_lossy(),
+        id()
+    ));
+
+    let _ = fs::remove_dir_all(&tmp);
+    create_dir(&tmp)?;
 
     for entry in fs::read_dir(src).map_err(|e| format!("read_dir src failed: {}", e))? {
         let entry = entry.map_err(|e| format!("read entry failed: {}", e))?;
@@ -252,19 +261,26 @@ fn sync_dir(src: &Path, dst: &Path) -> Result<(), String> {
         if ty.is_file() {
             let filename = entry.file_name();
             let src_file = src.join(&filename);
-            let dst_file = dst.join(&filename);
+            let dst_file = tmp.join(&filename);
             fs::copy(&src_file, &dst_file).map_err(|e| format!("copy failed: {}", e))?;
             set_file_perm(&dst_file, 0o644)?;
         }
     }
 
-    let _ = Command::new("chcon")
-        .args([
-            "-R",
-            "u:object_r:system_file:s0",
-            dst.to_string_lossy().as_ref(),
-        ])
-        .status();
+    let _ = fs::remove_dir_all(dst);
+    fs::rename(&tmp, dst).map_err(|e| format!("rename tmp to dst failed: {}", e))?;
+
+    set_file_perm(dst, 0o755)?;
+
+    if apply_context {
+        let _ = Command::new("chcon")
+            .args([
+                "-R",
+                "u:object_r:system_file:s0",
+                dst.to_string_lossy().as_ref(),
+            ])
+            .status();
+    }
 
     Ok(())
 }
@@ -301,7 +317,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
             }
 
             if pkg_apks_dir.is_dir() {
-                sync_dir(&pkg_apks_dir, &app_dir)?;
+                sync_dir(&pkg_apks_dir, &app_dir, true)?;
 
                 record.updated_at = current_time();
                 record.pending_boot_id = None;
@@ -319,7 +335,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
         }
 
         if record.status == AppStatus::PendingRemove && pkg_apks_dir.is_dir() {
-            sync_dir(&pkg_apks_dir, &app_dir)?;
+            sync_dir(&pkg_apks_dir, &app_dir, true)?;
 
             record.status = AppStatus::Active;
             record.updated_at = current_time();
@@ -362,7 +378,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
     fs::rename(&tmp_apks_dir, &pkg_apks_dir)
         .map_err(|e| format!("rename to state/apks/pkg failed: {}", e))?;
 
-    sync_dir(&pkg_apks_dir, &app_dir)?;
+    sync_dir(&pkg_apks_dir, &app_dir, true)?;
 
     let now = current_time();
     let record = state.apps.entry(pkg.clone()).or_insert_with(|| AppRecord {
@@ -459,6 +475,8 @@ fn reconcile(phase: &str) -> Result<(), String> {
     let mut changed = false;
     let mut repairs = 0usize;
 
+    let apply_context = phase != "post-fs-data";
+
     for (pkg, record) in state.apps.iter_mut() {
         let app_dir = target_root.join(pkg);
         let pkg_apks_dir = apks_root.join(pkg);
@@ -471,7 +489,7 @@ fn reconcile(phase: &str) -> Result<(), String> {
                             continue;
                         }
 
-                        sync_dir(&pkg_apks_dir, &app_dir)?;
+                        sync_dir(&pkg_apks_dir, &app_dir, apply_context)?;
                         repairs += 1;
                         changed = true;
                     } else if phase == "manual" {
@@ -494,7 +512,7 @@ fn reconcile(phase: &str) -> Result<(), String> {
                                     continue;
                                 }
 
-                                sync_dir(&pkg_apks_dir, &app_dir)?;
+                                sync_dir(&pkg_apks_dir, &app_dir, apply_context)?;
                                 repairs += 1;
                             } else {
                                 // 缓存缺失，不能落定 active
@@ -508,7 +526,7 @@ fn reconcile(phase: &str) -> Result<(), String> {
                         changed = true;
                     }
                 } else if !app_dir.is_dir() && pkg_apks_dir.is_dir() {
-                    sync_dir(&pkg_apks_dir, &app_dir)?;
+                    sync_dir(&pkg_apks_dir, &app_dir, apply_context)?;
                     changed = true;
                 }
             }
@@ -552,6 +570,30 @@ fn reconcile(phase: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn read_keepalive_packages() -> Vec<String> {
+    let path = keepalive_sysconfig_path();
+    if !path.exists() {
+        return Vec::new();
+    }
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut pkgs = Vec::new();
+    for line in content.lines() {
+        if let Some(pos) = line.find("<allow-in-power-save package=\"") {
+            let start = pos + "<allow-in-power-save package=\"".len();
+            if let Some(end) = line[start..].find('"') {
+                pkgs.push(line[start..start + end].to_string());
+            }
+        }
+    }
+    pkgs.sort();
+    pkgs.dedup();
+    pkgs
 }
 
 fn diagnose() -> Result<(), String> {
@@ -641,6 +683,32 @@ fn diagnose() -> Result<(), String> {
         .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
         .count();
     println!("keepalive_packages={}", keepalive_count);
+
+    let actual_keepalive = read_keepalive_packages();
+    let mut expected_keepalive: Vec<String> = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
+        .map(|r| r.package.clone())
+        .collect();
+    expected_keepalive.sort();
+    expected_keepalive.dedup();
+
+    let synced = expected_keepalive == actual_keepalive;
+    println!("keepalive_expected_packages={}", expected_keepalive.len());
+    println!("keepalive_actual_packages={}", actual_keepalive.len());
+    println!("keepalive_synced={}", synced);
+
+    for pkg in &expected_keepalive {
+        if !actual_keepalive.contains(pkg) {
+            println!("keepalive_missing_package={}", pkg);
+        }
+    }
+    for pkg in &actual_keepalive {
+        if !expected_keepalive.contains(pkg) {
+            println!("keepalive_extra_package={}", pkg);
+        }
+    }
 
     let expected_description = build_description(&state);
     let actual_description = read_module_prop_description();
@@ -849,6 +917,127 @@ fn status(pkg: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn risk_json(pkg: &str) -> Result<(), String> {
+    let pkg = safe_pkg(pkg)?;
+    
+    let mut is_xposed = false;
+    let mut reasons = Vec::new();
+    
+    let targets = [
+        "assets/xposed_init",
+        "META-INF/xposed/java_init.list",
+        "META-INF/xposed/native_init.list",
+        "META-INF/xposed/module.prop",
+        "META-INF/xposed/scope.list",
+    ];
+
+    if let Ok(apks) = pm_path(&pkg) {
+        for apk in apks {
+            if let Ok(out) = run_command("unzip", &["-l", apk.to_string_lossy().as_ref()]) {
+                for target in &targets {
+                    if out.lines().any(|line| line.trim().ends_with(target)) {
+                        is_xposed = true;
+                        reasons.push(format!("Detected {}", target));
+                    }
+                }
+            }
+        }
+    }
+
+    #[derive(Serialize)]
+    struct RiskResponse {
+        package: String,
+        #[serde(rename = "xposedModule")]
+        xposed_module: bool,
+        #[serde(rename = "riskLevel")]
+        risk_level: String,
+        reasons: Vec<String>,
+        #[serde(rename = "blockedByDefault")]
+        blocked_by_default: bool,
+    }
+
+    let response = RiskResponse {
+        package: pkg,
+        xposed_module: is_xposed,
+        risk_level: if is_xposed { "high".to_string() } else { "none".to_string() },
+        reasons,
+        blocked_by_default: is_xposed,
+    };
+
+    println!("{}", serde_json::to_string(&response).unwrap());
+    Ok(())
+}
+
+fn module_info_json() -> Result<(), String> {
+    let path = module_prop_path();
+    if !path.exists() {
+        return Err(format!("module.prop does not exist at {}", path.display()));
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read module.prop: {}", e))?;
+
+    let mut map = BTreeMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || !line.contains('=') {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(2, '=').collect();
+        if parts.len() == 2 {
+            map.insert(parts[0].trim().to_string(), parts[1].trim().to_string());
+        }
+    }
+
+    println!("{}", serde_json::to_string_pretty(&map).unwrap());
+    Ok(())
+}
+
+fn verify_derived() -> Result<(), String> {
+    let state = read_state()?;
+    let root = moddir();
+    let system_root = root.join("system").join(SYSTEM_TARGET);
+    
+    let expected_description = build_description(&state);
+    let actual_description = read_module_prop_description().unwrap_or_default();
+    let desc_synced = actual_description == expected_description;
+    
+    let keepalive_actual = read_keepalive_packages();
+    let mut keepalive_expected: Vec<String> = state
+        .apps
+        .values()
+        .filter(|r| r.status == AppStatus::Active || r.status == AppStatus::PendingAdd)
+        .map(|r| r.package.clone())
+        .collect();
+    keepalive_expected.sort();
+    keepalive_expected.dedup();
+    let keepalive_synced = keepalive_expected == keepalive_actual;
+    
+    let mut file_integrity = true;
+    for (pkg, record) in &state.apps {
+        let app_dir = system_root.join(pkg);
+        match record.status {
+            AppStatus::Active => {
+                if !app_dir.is_dir() {
+                    file_integrity = false;
+                }
+            }
+            AppStatus::PendingRemove => {
+                if app_dir.is_dir() {
+                    file_integrity = false;
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    println!("description_synced={}", desc_synced);
+    println!("keepalive_synced={}", keepalive_synced);
+    println!("file_integrity={}", file_integrity);
+    
+    Ok(())
+}
+
 fn usage() {
     eprintln!("usage:");
     eprintln!("  systemizer diagnose");
@@ -858,6 +1047,9 @@ fn usage() {
     eprintln!("  systemizer systemize <package> app [--dry-run]");
     eprintln!("  systemizer unsystemize <package>");
     eprintln!("  systemizer state-json");
+    eprintln!("  systemizer risk-json <package>");
+    eprintln!("  systemizer module-info-json");
+    eprintln!("  systemizer verify-derived");
     eprintln!("  systemizer reconcile --phase <install|post-fs-data|manual>");
     eprintln!("  systemizer refresh-derived");
 }
@@ -884,6 +1076,14 @@ fn run() -> Result<(), String> {
             println!("{}", serde_json::to_string_pretty(&state).unwrap());
             Ok(())
         }
+        "risk-json" => {
+            if args.len() < 3 {
+                return Err("missing package".into());
+            }
+            risk_json(&args[2])
+        }
+        "module-info-json" => module_info_json(),
+        "verify-derived" => verify_derived(),
         "reconcile" => {
             if args.len() < 4 || args[2] != "--phase" {
                 return Err("usage: reconcile --phase <install|post-fs-data|manual>".into());
