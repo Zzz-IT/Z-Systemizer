@@ -416,12 +416,12 @@ async function toggleApp(app: UiAppEntry) {
   if (state.globalBusy || app.busy) return
 
   if (app.status === 'pending-add') {
-    await doUnsystemize(app, '已取消待系统化')
+    await doUnsystemize(app, '已取消待系统化', 'normal')
     return
   }
 
   if (app.status === 'pending-remove') {
-    await doSystemize(app, '已撤销移除')
+    await doSystemize(app, '已撤销移除', 'systemized')
     return
   }
 
@@ -436,14 +436,14 @@ async function toggleApp(app: UiAppEntry) {
       return
     }
 
-    await doUnsystemize(app, '已记录待移除')
+    await doUnsystemize(app, '已记录待移除', 'pending-remove')
     return
   }
 
-  await doSystemize(app, '已记录待系统化')
+  await doSystemize(app, '已记录待系统化', 'pending-add')
 }
 
-async function doSystemize(app: UiAppEntry, msg: string) {
+async function doSystemize(app: UiAppEntry, msg: string, nextStatus: UiAppEntry['status']) {
   app.busy = true
   updateCardDOM(app.packageName)
 
@@ -451,7 +451,8 @@ async function doSystemize(app: UiAppEntry, msg: string) {
     await systemize(app.packageName)
     toast(msg)
     app.busy = false
-    await refresh()
+    app.status = nextStatus
+    updateCardDOM(app.packageName)
   } catch (e) {
     toast(errorMessage(e))
     app.busy = false
@@ -459,7 +460,7 @@ async function doSystemize(app: UiAppEntry, msg: string) {
   }
 }
 
-async function doUnsystemize(app: UiAppEntry, msg: string) {
+async function doUnsystemize(app: UiAppEntry, msg: string, nextStatus: UiAppEntry['status']) {
   app.busy = true
   updateCardDOM(app.packageName)
 
@@ -467,7 +468,8 @@ async function doUnsystemize(app: UiAppEntry, msg: string) {
     await unsystemize(app.packageName)
     toast(msg)
     app.busy = false
-    await refresh()
+    app.status = nextStatus
+    updateCardDOM(app.packageName)
   } catch (e) {
     toast(errorMessage(e))
     app.busy = false
@@ -745,6 +747,61 @@ function bindEvents() {
       confirmText: '确定'
     })
   }
+
+  // Pull to Refresh Logic
+  let touchStartY = 0
+  let isPulling = false
+  const ptrIndicator = document.querySelector<HTMLElement>('.ptr-indicator')!
+  const ptrSpinner = document.querySelector<HTMLElement>('.ptr-spinner')!
+  const THRESHOLD = 60
+
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY === 0) {
+      touchStartY = e.touches[0].clientY
+      isPulling = true
+    } else {
+      isPulling = false
+    }
+  }, { passive: true })
+
+  document.addEventListener('touchmove', (e) => {
+    if (!isPulling || state.globalBusy) return
+    const currentY = e.touches[0].clientY
+    const pullDistance = currentY - touchStartY
+
+    if (pullDistance > 0 && window.scrollY === 0) {
+      e.preventDefault()
+      const height = Math.min(pullDistance * 0.4, THRESHOLD + 20)
+      ptrIndicator.style.height = `${height}px`
+      
+      if (height > THRESHOLD) {
+        ptrSpinner.classList.add('active')
+      } else {
+        ptrSpinner.classList.remove('active')
+      }
+    }
+  }, { passive: false })
+
+  document.addEventListener('touchend', () => {
+    if (!isPulling) return
+    isPulling = false
+    const currentHeight = parseInt(ptrIndicator.style.height || '0', 10)
+
+    if (currentHeight > THRESHOLD && !state.globalBusy) {
+      ptrIndicator.style.height = `${THRESHOLD}px`
+      refresh().then(() => {
+        ptrIndicator.style.height = '0px'
+        ptrSpinner.classList.remove('active')
+      }).catch((e) => {
+        showFatalError(e)
+        ptrIndicator.style.height = '0px'
+        ptrSpinner.classList.remove('active')
+      })
+    } else {
+      ptrIndicator.style.height = '0px'
+      ptrSpinner.classList.remove('active')
+    }
+  })
 }
 
 bindEvents()
