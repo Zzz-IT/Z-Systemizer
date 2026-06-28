@@ -18,13 +18,9 @@ enum ApplyMode {
     PostFsData,
 }
 
-const KEEPALIVE_TAGS: &[&str] = &[
-    "allow-in-power-save",
-    "allow-in-power-save-except-idle",
-];
+const KEEPALIVE_TAGS: &[&str] = &["allow-in-power-save", "allow-in-power-save-except-idle"];
 
 type KeepaliveEntry = (String, String);
-
 
 fn moddir() -> PathBuf {
     env::var("SYSTEMIZER_MODDIR")
@@ -896,10 +892,7 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
         let pkg = xml_escape(&pkg);
 
         for tag in KEEPALIVE_TAGS {
-            xml.push_str(&format!(
-                "    <{} package=\"{}\" />\n",
-                tag, pkg
-            ));
+            xml.push_str(&format!("    <{} package=\"{}\" />\n", tag, pkg));
         }
     }
 
@@ -1129,7 +1122,7 @@ fn verify_derived() -> Result<(), String> {
     for (pkg, record) in &state.apps {
         let app_dir = system_root.join(pkg);
         let apk_dir = apks_root.join(pkg);
-        
+
         match record.status {
             AppStatus::Active | AppStatus::PendingAdd => {
                 if !app_dir.is_dir() {
