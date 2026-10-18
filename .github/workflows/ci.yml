@@ -49,7 +49,13 @@ jobs:
           grep -q 'fn update_aosp_keepalive_sysconfig' cli/src/main.rs
           grep -q 'keepalive_sysconfig_path' cli/src/main.rs
           grep -q '"allow-in-power-save"' cli/src/main.rs
-          grep -q '"allow-in-power-save-except-idle"' cli/src/main.rs
+          # allow-in-power-save 已隐含 except-idle 的豁免效果，双写会让
+          # DeviceIdleController 的开机解析语义变得不可预期，必须保持单标签
+          # （对应 KEEPALIVE_TAGS 单测：只允许 allow-in-power-save）
+          if grep -q '"allow-in-power-save-except-idle"' cli/src/main.rs; then
+            echo "sysconfig must not write allow-in-power-save-except-idle (implied by allow-in-power-save)"
+            exit 1
+          fi
 
           # 不应使用不确定的 sysconfig 标签
           if grep -q 'allow-in-data-usage-save' cli/src/main.rs; then
