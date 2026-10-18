@@ -197,8 +197,11 @@ fn write_state_atomic(state: &mut StateFile) -> Result<(), String> {
 
 // 跨进程互斥锁：state 是「读-改-写」，WebUI（exec）、模块脚本（reconcile）、
 // 终端三处可能同时改它，没有锁时后写者会用旧快照覆盖前者的改动。
-// 用 create_new 原子建锁文件，超时 5s，超过 60s 视为崩溃残留直接接管。
-const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+// 用 create_new 原子建锁文件，超时 30s，超过 60s 视为崩溃残留直接接管。
+//
+// 超时必须大于临界区实际耗时：持锁方在 after_state_changed 里会按包逐个 exec
+// cmd deviceidle / am set-standby-bucket / appops，几十个包加起来可达数秒。
+const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 const STATE_LOCK_STALE: Duration = Duration::from_secs(60);
 
 struct StateLock {

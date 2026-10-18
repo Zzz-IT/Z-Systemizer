@@ -66,7 +66,7 @@ CLI 源码位于 `cli/src/main.rs`，采用单文件内聚分区，核心函数�
 | 函数组 | 职责 |
 | :--- | :--- |
 | `read_state` / `write_state_atomic` | `systemizer-state.json` 原子读写（含 `.bak` 回滚） |
-| `acquire_state_lock` | 写前抢 `systemizer-state.lock`（`create_new`，5 s 超时，60 s 判陈旧） |
+| `acquire_state_lock` | 写前抢 `systemizer-state.lock`（`create_new`，30 s 超时，60 s 判陈旧） |
 | `systemize` / `unsystemize` | 系统化 / 反系统化主流程 |
 | `reconcile` | 开机三段位（`install` / `post-fs-data` / `manual`）状态落定 |
 | `expected_keepalive_packages` / `expected_keepalive_entries` | 从单文件状态提取保活包集合（含 `keepalive_only` 叠加态） |
