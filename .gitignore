@@ -1,0 +1,31 @@
+# Rust build artifacts
+target/
+**/target/
+
+# Node.js dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs & packages
+out/
+*.zip
+module-template/bin/
+module-template/checksums/SHA256SUMS
+module-template/webroot/assets/
+module-template/state/
+module-template/system/
+
+# Local scratch / agent files
+$tmp/
+.agents/
+.dsh-probe.txt
+webui/__probe.html
+webui/test-spinner.html
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.bak
+.idea/
+.vscode/

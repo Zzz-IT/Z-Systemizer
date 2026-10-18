@@ -21,7 +21,7 @@
           <div class="dropdown-menu">
             <label class="menu-item toggle-item">
               <input type="checkbox" id="toggle-only-sys">
-              <span>仅看系统化/待处理</span>
+              <span>仅看已处理和待重启</span>
             </label>
             <div class="menu-divider"></div>
             <button class="menu-item" id="menu-diagnose">运行诊断</button>
@@ -35,15 +35,15 @@
     <section class="summary-card">
       <div>
         <strong class="summary-systemized">0</strong>
-        <span>已系统化</span>
+        <span class="summary-systemized-label">已处理</span>
       </div>
       <div>
         <strong class="summary-pending">0</strong>
-        <span>待重启</span>
+        <span class="summary-pending-label">待重启</span>
       </div>
-      <div>
-        <strong>app</strong>
-        <span>system/app</span>
+      <div class="summary-category is-clickable" role="button" tabindex="0" aria-label="切换分类">
+        <strong class="summary-category-title">app</strong>
+        <span class="summary-category-subtitle">system/app</span>
       </div>
     </section>
 
@@ -56,17 +56,21 @@
         <div class="ptr-spinner"></div>
       </div>
 
-      <div class="status-line">正在加载应用列表...</div>
+      <!-- ptr-content：下滑刷新时整层只做 transform 位移，
+           与 .ptr-indicator 一同交给合成器，不再逐帧重排 .app-list -->
+      <div class="ptr-content">
+        <div class="status-line">正在加载应用列表...</div>
 
-      <section class="loading-state">
-        正在准备应用列表...
-      </section>
+        <section class="loading-state">
+          正在准备应用列表...
+        </section>
 
-      <section class="empty-state hidden">
-        暂无可显示应用
-      </section>
+        <section class="empty-state hidden">
+          暂无可显示应用
+        </section>
 
-      <section class="app-list is-loading" aria-live="polite"></section>
+        <section class="app-list is-loading" aria-live="polite"></section>
+      </div>
     </section>
   </div>
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.2.5
+
+### Added
+- **WebUI 模块化重构**：前端拆分为 `types` / `stateMachine` / `api` / `icons` / `dialogs` / `main` 六个高内聚模块，`state.ts` 保留兼容垫片。
+- **纯函数状态机**：实际态与意图态的双维度流转抽离为无 DOM 依赖的纯函数，并新增 36 项 `node --test` 单元测试。
+- **FLIP 过渡动画**：分类切换与开关重排改用 FLIP，列表改为节点复用差分更新，长列表不再卡顿。
+- **双开 / 多用户去重**：`getApps()` 按包名去重，避免卡片互相覆盖与概览计数翻倍。
+- **离线预览**：新增 `npm run preview:mock` 与 `webui/preview` 模拟数据。
+
+### Changed
+- 模块 `description` 文案统一为「已处理 N 个（系统化 X 个，保活 Y 个；待系统化 A 个，待移除 B 个，需重启生效）」，与 README、WebUI 概览口径一致。
+- 版本号提升至 `v1.2.5`（`versionCode=125`）。
+
+### Fixed
+- 修复 WebUI 源码相对导入缺少 `.ts` 后缀、导致单元测试无法运行的问题。
+
 ## v1.2.0
 
 ### Added

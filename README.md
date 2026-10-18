@@ -105,8 +105,11 @@ Z Systemizer 不会在用户点击开关时直接修改真实 `/system` 分区�
 `module.prop` 的 `description=` 会根据当前状态生成，例如：
 
 ```text
-Z Systemizer：已系统化 1 个，待系统化 2 个，待移除 0 个；待处理项需重启生效。
+Z Systemizer：已处理 1 个（系统化 1 个）。
+Z Systemizer：已处理 3 个（系统化 1 个，保活 2 个；待系统化 1 个，待移除 0 个，需重启生效）。
 ```
+
+文案格式与 WebUI 概览「已处理 / 待重启」两栏严格一致，详见 [REFACTOR_AND_OPERATION_MANUAL.md §3.1](./REFACTOR_AND_OPERATION_MANUAL.md)。
 
 注意：模块会自动修改 `module.prop` 文件，但 KernelSU 管理器外层模块列表可能会缓存模块信息，不一定在 WebUI 内实时刷新显示。可通过退出模块列表、重新进入 KernelSU 管理器或执行诊断确认文件是否已经同步。
 

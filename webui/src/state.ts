@@ -1,74 +1,60 @@
-import type { AppEntry, SystemizerState } from './api'
+// 兼容垫片：保留旧 API 入口
+// 所有实现已迁移到 types.ts + stateMachine.ts（高内聚纯逻辑层）
 
+export type {
+  ActualStatus,
+  AppDisplayStatus,
+  AppEntry,
+  AppRecord,
+  Category,
+  IntentStatus,
+  LogicalStatus,
+  SummaryStats,
+  SystemizerState,
+  UiAppEntry,
+} from './types.ts'
+
+// 兼容旧 UiStatus 命名
 export type UiStatus = 'normal' | 'systemized' | 'pending-add' | 'pending-remove'
 
-export interface UiAppEntry extends AppEntry {
-  status: UiStatus
-  busy: boolean
-  fromStateOnly?: boolean
-}
+export {
+  applyClickResult,
+  buildUiApps,
+  collapseLogical,
+  computeNextOnClick,
+  computeSummary,
+  deriveActual,
+  deriveIntent,
+  filterByCategory,
+  getDisplayStatus,
+  hasPending,
+  isSwitchOn,
+  mergeBusyState,
+  sortApps,
+  type ClickResult,
+  type SwitchIntent,
+} from './stateMachine.ts'
 
-export function uiStatusOf(pkg: string, persisted: SystemizerState): UiStatus {
-  const record = persisted.apps[pkg]
+import type { UiAppEntry } from './types.ts'
+
+/**
+ * @deprecated 仅供尚未迁移的旧 main.ts 调用；新代码请直接用 logical/actual/intent。
+ */
+export function uiStatusOf(
+  pkg: string,
+  persisted: import('./types').SystemizerState,
+): UiStatus {
+  const record = persisted.apps?.[pkg]
   if (!record) return 'normal'
-
   switch (record.status) {
-    case 'active':
-      return 'systemized'
-    case 'pending_add':
-      return 'pending-add'
-    case 'pending_remove':
-      return 'pending-remove'
-    default:
-      return 'normal'
+    case 'active': return 'systemized'
+    case 'pending_add': return 'pending-add'
+    case 'pending_remove': return 'pending-remove'
+    default: return 'normal'
   }
 }
 
-export function buildUiApps(
-  apps: AppEntry[],
-  persisted: SystemizerState,
-): UiAppEntry[] {
-  const appMap = new Map(apps.map(app => [app.packageName, app]))
-
-  const rows: UiAppEntry[] = apps
-    .filter(app => !app.isSystem || persisted.apps[app.packageName])
-    .map(app => ({
-      ...app,
-      status: uiStatusOf(app.packageName, persisted),
-      busy: false,
-      fromStateOnly: false,
-    }))
-
-  for (const [pkg] of Object.entries(persisted.apps)) {
-    if (appMap.has(pkg)) continue
-
-    rows.push({
-      packageName: pkg,
-      appName: pkg,
-      isSystem: true,
-      status: uiStatusOf(pkg, persisted),
-      busy: false,
-      fromStateOnly: true,
-    })
-  }
-
-  return rows
-}
-
-export function mergeBusyState(nextApps: UiAppEntry[], oldApps: UiAppEntry[]): UiAppEntry[] {
-  const oldMap = new Map(oldApps.map(app => [app.packageName, app]))
-
-  return nextApps.map(next => {
-    const old = oldMap.get(next.packageName)
-    if (!old || !old.busy) return next
-
-    return {
-      ...next,
-      busy: old.busy,
-    }
-  })
-}
-
-export function hasPending(apps: UiAppEntry[]): boolean {
-  return apps.some(app => app.status === 'pending-add' || app.status === 'pending-remove')
-}
+/**
+ * @deprecated 旧字段别名映射（保持 main.ts 直接可编译）。
+ */
+export type UiAppEntryLegacy = UiAppEntry & { status: UiStatus }

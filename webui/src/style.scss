@@ -197,8 +197,9 @@ button {
 }
 
 .summary-card {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
 
   div {
     display: flex;
@@ -216,6 +217,19 @@ button {
     font-size: 13px;
     color: var(--muted);
     font-weight: 500;
+  }
+}
+
+.summary-category {
+  cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+
+  &.is-clickable:hover {
+    opacity: 0.78;
+  }
+
+  &.is-clickable:active {
+    transform: scale(0.97);
   }
 }
 
@@ -314,8 +328,17 @@ button {
   box-shadow: var(--shadow-card-soft);
   cursor: pointer;
   transform-origin: center top;
-  will-change: opacity, transform, max-height, padding, margin;
-  
+  // 收敛 will-change：max-height/padding/margin 不可合成，白占显存；
+  // 真正会动画的只剩 opacity 与 transform。
+  will-change: opacity, transform;
+
+  // FLIP：分类切换与开关重排时仅操作 transform，避免 reflow 卡顿
+  // 时长必须与 main.ts playFlip 内联 transition 保持一致（360ms）
+  &.is-flipping {
+    transition: transform 360ms cubic-bezier(.2, .8, .2, 1);
+    z-index: 2;
+  }
+
   transition:
     opacity 0.26s cubic-bezier(.2, .8, .2, 1),
     transform 0.26s cubic-bezier(.2, .8, .2, 1),
@@ -332,39 +355,32 @@ button {
   }
 
   &.enter {
+    // 入场初始态：纯合成属性，0 主线程重排
+    // 关键设计：绝不再声明 max-height:0 / padding:0 / margin:0
+    // 1. 卡片挂载即具备自然高度，DOM 流一次性排版就绪，杜绝 420ms 逐帧 Global Reflow
+    // 2. 避免所有卡片折叠在 Y=0 处导致 IntersectionObserver 瞬间误触发全量图标懒加载
     opacity: 0;
-    transform: translateY(-16px) scale(0.98);
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin-top: 0;
-    overflow: hidden;
+    transform: translateY(-12px) scale(0.97);
   }
 
   &.enter.enter-done {
+    // 入场完成态：仅 GPU 合成属性 + background 过渡
     opacity: 1;
     transform: translateY(0) scale(1);
-    max-height: 160px;
-    padding-top: 16px;
-    padding-bottom: 16px;
-    margin-top: 0;
     transition:
-      opacity 360ms cubic-bezier(.2, .8, .2, 1),
-      transform 420ms cubic-bezier(.18, .9, .2, 1),
-      max-height 420ms cubic-bezier(.18, .9, .2, 1),
-      padding 420ms cubic-bezier(.18, .9, .2, 1),
-      margin 420ms cubic-bezier(.18, .9, .2, 1),
+      opacity 280ms cubic-bezier(.2, .8, .2, 1),
+      transform 320ms cubic-bezier(.18, .9, .2, 1),
       background 160ms ease;
     transition-delay:
-      var(--enter-delay, 0ms),
-      var(--enter-delay, 0ms),
-      var(--enter-delay, 0ms),
       var(--enter-delay, 0ms),
       var(--enter-delay, 0ms),
       0ms;
   }
   
-  &.leave {
+  // 退场：选择器必须升到 (0,3,0) 才能压住 &.enter.enter-done (0,3,0)，
+  // 否则 opacity / max-height / padding / transform 全部被入场规则反向覆盖，
+  // 导致卡片原地停 180ms 后被 .remove() 瞬间抽走，文档高度一帧内暴跌 550px。
+  &.enter-done.leave {
     opacity: 0;
     transform: scale(0.96);
     max-height: 0;
@@ -374,8 +390,8 @@ button {
     margin-bottom: -12px;
     border: none;
     transition:
-      opacity 180ms ease,
-      transform 180ms ease,
+      opacity 220ms ease,
+      transform 220ms ease,
       max-height 220ms ease,
       padding 220ms ease,
       margin 220ms ease;
@@ -477,11 +493,11 @@ button {
   &.is-pending-remove {
     color: var(--danger);
   }
-  
+
   &.is-pending-add {
     color: #ff9500;
   }
-  
+
   &.is-pending-remove {
     color: #ff9500;
   }
@@ -489,6 +505,21 @@ button {
   &.is-systemized {
     color: var(--muted);
   }
+
+  &.is-keepalive {
+    color: var(--muted);
+  }
+}
+
+// 白黄双色小字契约（红线 2：单个半角空格）
+// v1.2.1：白字回退为 var(--muted)（浅色模式下与 1.2.0 一致的弱化灰）
+.status-actual {
+  color: var(--muted);
+}
+
+.status-intent {
+  color: #ff9500;
+  font-weight: 600;
 }
 
 .switch {
@@ -542,29 +573,58 @@ button {
 
 .app-region {
   position: relative;
+  overflow: hidden;
 }
 
+// PTR 指示器：固定高度容器 + 内部 translateY 位移。
+// 用 height 动画会让每帧重排波及 .app-list（20+ 张卡片）；
+// 改为 transform 后动画完全在合成器内完成，主线程零布局。
+//
+// 必须 absolute 且 top 取负高度：否则容器常驻文档流，
+// 视觉上被 translateY 藏起来但布局空间不释放，搜索栏与内容之间会永久出现空隙。
+// 高度取 maxPull(112)，使指示器底边永远与内容顶边对齐（恰好填满被拉开的缺口）。
 .ptr-indicator {
-  height: 0;
+  position: absolute;
+  top: -112px;
+  left: 0;
+  right: 0;
+  height: 112px;
   overflow: hidden;
-  opacity: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  will-change: height, opacity;
   pointer-events: none;
+  will-change: transform, opacity;
+  opacity: 0;
+  transform: translateY(0);
+  transition:
+    transform 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 220ms ease;
 }
 
+// 刷新中：指示器停在阈值位置（与 JS 内联 translateY(threshold) 一致），只让 spinner 旋转。
+// 注意：位移量由 JS 内联写入，此处不可再声明 transform —— 内联样式优先级更高，
+// 两边都写会让 class 规则被静默覆盖，一旦不一致指示器就会滑出可视区。
 .ptr-indicator.is-refreshing {
+  opacity: 1;
   transition:
-    height 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 180ms ease;
 }
 
-.ptr-indicator.is-releasing {
-  transition:
-    height 300ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 220ms ease;
+// 手指拖动中：跟随手指位置，禁用过渡保证 1:1 跟手
+.ptr-indicator.is-pulling {
+  transition: none;
+}
+
+.ptr-content {
+  will-change: transform;
+  transform: translateY(0);
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ptr-content.is-pulling {
+  transition: none;
 }
 
 .ptr-spinner {
@@ -574,15 +634,31 @@ button {
   border-top-color: transparent;
   border-radius: 50%;
   opacity: 0.92;
+  transform: scale(0.6);
+  // 基态补 transition：releasePull 写回 rotate(0deg) scale(0.6) 走平滑回绕，
+  // 而不是「回绕瞬跳」。时长与 indicator/content 的 releasePull 同步。
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  // 提升为合成层：圆环现在承担持续旋转动画，值得独立一层
+  will-change: transform;
+}
+
+// 拖动期禁止圆环过渡：JS 100% 接管 transform，否则 transition 会与 JS 写入打架
+.ptr-indicator.is-pulling .ptr-spinner {
+  transition: none;
 }
 
 .ptr-spinner.active {
-  animation: ptr-spin 0.8s linear infinite;
+  // 单段动画 + 残余角度注入：
+  //   1. 交接那一刻 JS 把当前拖动角度写入 --spin-from（一次性，绝不每帧写）
+  //   2. keyframes `from` 用 var(--spin-from, 0deg) 起步，`to` 加 360°
+  //   3. 浏览器解析最终状态后从 残余角度 平滑连续旋转到 残余角度+360°，零相位跳变
+  animation: ptr-spin 800ms linear infinite;
+  transform: scale(1);
 }
 
 @keyframes ptr-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from { transform: rotate(var(--spin-from, 0deg)) scale(1); }
+  to   { transform: rotate(calc(var(--spin-from, 0deg) + 360deg)) scale(1); }
 }
 
 .reboot-fab {

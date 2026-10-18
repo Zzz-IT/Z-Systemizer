@@ -1,0 +1,1134 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <script>(function () {
+  var p = new URLSearchParams(location.search);
+  if (p.get('only') === '1') { localStorage.setItem('onlySystemized', 'true'); }
+  if (p.get('only') === '0') { localStorage.removeItem('onlySystemized'); }
+  if (p.get('q')) { window.__previewQuery = p.get('q'); }
+  if (p.get('view') === 'keepalive') { window.__previewView = 'keepalive'; }
+})();</script>
+
+  <script type="module" src="/@vite/client"></script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Z Systemizer</title>
+<style type="text/css" data-vite-dev-id="D:/GOLANG/Z-Systemizer-main/webui/src/style.scss">:root {
+  color-scheme: light dark;
+  --bg: #f6f6f7;
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --surface-pressed: #e9e9ef;
+  --text: #171717;
+  --muted: #77777d;
+  --secondary: #8e8e93;
+  --accent: #2E75F4;
+  --danger: #ff3b30;
+  --switch-off: #d1d1d6;
+  --divider: #e5e5ea;
+  --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.08);
+  --shadow-button: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-icon: 0 3px 8px rgba(0, 0, 0, 0.18);
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.07);
+  --shadow-card-soft: 0 3px 10px rgba(0, 0, 0, 0.045);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1014;
+    --surface: #1c1d22;
+    --surface-2: #26272c;
+    --surface-pressed: #32333a;
+    --text: #f5f5f7;
+    --muted: #a1a1aa;
+    --secondary: #8e8e93;
+    --switch-off: #3a3a40;
+    --divider: #34343a;
+    --shadow-soft: 0 10px 28px rgba(0, 0, 0, 0.36);
+    --shadow-button: 0 6px 18px rgba(0, 0, 0, 0.32);
+    --shadow-icon: 0 4px 12px rgba(0, 0, 0, 0.42);
+    --shadow-card: 0 12px 30px rgba(0, 0, 0, 0.30);
+    --shadow-card-soft: 0 5px 14px rgba(0, 0, 0, 0.24);
+  }
+}
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.page {
+  padding: 16px 20px 100px;
+  max-width: 600px;
+  margin: 0 auto;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: page-enter 360ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.header-title h1 {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: -0.5px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.icon-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-button);
+  transition: transform 0.15s ease, background 0.15s ease;
+  cursor: pointer;
+}
+
+.icon-button:active {
+  background: var(--surface-pressed);
+  transform: scale(0.97);
+}
+
+.header-menu-wrap {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 180px;
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 100;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+  transform-origin: top right;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dropdown-menu.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  border-radius: 10px;
+  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: none;
+  cursor: pointer;
+}
+.menu-item:active {
+  background: var(--surface-pressed);
+  transform: scale(0.97);
+}
+.menu-item input[type=checkbox] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--surface-pressed);
+  margin: 4px 8px;
+}
+
+.summary-card,
+.search-card {
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card-soft);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+}
+.summary-card div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.summary-card strong {
+  font-size: 20px;
+  font-weight: 800;
+}
+.summary-card span {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.summary-category {
+  cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.summary-category.is-clickable:hover {
+  opacity: 0.78;
+}
+.summary-category.is-clickable:active {
+  transform: scale(0.97);
+}
+
+.search-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  outline: none;
+}
+.search-input::placeholder {
+  color: var(--muted);
+}
+
+.status-line {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.empty-state {
+  margin: 16px 0;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-card-soft);
+}
+
+.loading-state {
+  min-height: 32px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 180ms ease, transform 180ms ease;
+  margin-bottom: 12px;
+}
+
+.loading-state.hidden {
+  display: none !important;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+.app-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 260ms ease, transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.app-list.is-ready {
+  opacity: 1;
+  transform: translateY(0);
+}
+.app-list.is-loading {
+  opacity: 0;
+  transform: translateY(18px);
+  pointer-events: none;
+}
+
+.app-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 24px;
+  box-shadow: var(--shadow-card-soft);
+  cursor: pointer;
+  transform-origin: center top;
+  will-change: opacity, transform, max-height, padding, margin;
+}
+.app-card.is-flipping {
+  transition: transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 2;
+}
+.app-card {
+  transition: opacity 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), border-radius 0.18s ease, background 0.16s ease;
+  transition-delay: var(--enter-delay, 0s), var(--enter-delay, 0s), 0s, 0s;
+}
+.app-card:active:not(:has(.switch:active)) {
+  background: var(--surface-pressed);
+}
+.app-card.enter {
+  opacity: 0;
+  transform: translateY(-16px) scale(0.98);
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 0;
+  overflow: hidden;
+}
+.app-card.enter.enter-done {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  max-height: 160px;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  margin-top: 0;
+  transition: opacity 360ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 420ms cubic-bezier(0.18, 0.9, 0.2, 1), max-height 420ms cubic-bezier(0.18, 0.9, 0.2, 1), padding 420ms cubic-bezier(0.18, 0.9, 0.2, 1), margin 420ms cubic-bezier(0.18, 0.9, 0.2, 1), background 160ms ease;
+  transition-delay: var(--enter-delay, 0ms), var(--enter-delay, 0ms), var(--enter-delay, 0ms), var(--enter-delay, 0ms), var(--enter-delay, 0ms), 0ms;
+}
+.app-card.leave {
+  opacity: 0;
+  transform: scale(0.96);
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 0;
+  margin-bottom: -12px;
+  border: none;
+  transition: opacity 180ms ease, transform 180ms ease, max-height 220ms ease, padding 220ms ease, margin 220ms ease;
+}
+
+.icon-wrap {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.icon-loader {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-pressed) 45%, var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+  z-index: 2;
+}
+
+.icon-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--secondary);
+  background: var(--surface-2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  z-index: 1;
+}
+.icon-fallback.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.app-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 3;
+}
+.app-icon.is-loaded {
+  opacity: 1;
+}
+.app-icon.is-error {
+  opacity: 0 !important;
+}
+
+.app-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-name {
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.package-name {
+  font-size: 12px;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.app-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.app-status.is-pending-add, .app-status.is-pending-remove {
+  color: var(--danger);
+}
+.app-status.is-pending-add {
+  color: #ff9500;
+}
+.app-status.is-pending-remove {
+  color: #ff9500;
+}
+.app-status.is-systemized {
+  color: var(--muted);
+}
+.app-status.is-keepalive {
+  color: var(--muted);
+}
+
+.status-actual {
+  color: var(--muted);
+}
+
+.status-intent {
+  color: #ff9500;
+  font-weight: 600;
+}
+
+.switch {
+  position: relative;
+  width: 52px;
+  height: 32px;
+  border-radius: 999px;
+  border: 0;
+  padding: 2px;
+  background: var(--switch-off);
+  box-shadow: inset 0 0 0 1px var(--divider), var(--shadow-button);
+  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.switch:active {
+  transform: scale(0.97);
+}
+
+.switch:active .switch-thumb {
+  width: 34px;
+}
+
+.switch.is-on:active .switch-thumb {
+  transform: translateX(14px);
+}
+
+.switch.is-on {
+  background: var(--accent);
+}
+
+.switch-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16), 0 3px 1px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.switch.is-on .switch-thumb {
+  transform: translateX(20px);
+}
+
+.switch.is-busy {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.app-region {
+  position: relative;
+  overflow: hidden;
+}
+
+.ptr-indicator {
+  position: absolute;
+  top: -112px;
+  left: 0;
+  right: 0;
+  height: 112px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  will-change: transform, opacity;
+  opacity: 0;
+  transform: translateY(0);
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
+}
+
+.ptr-indicator.is-refreshing {
+  opacity: 1;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease;
+}
+
+.ptr-indicator.is-pulling {
+  transition: none;
+}
+
+.ptr-content {
+  will-change: transform;
+  transform: translateY(0);
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ptr-content.is-pulling {
+  transition: none;
+}
+
+.ptr-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.92;
+  transform: scale(0.6);
+  transition: transform 180ms ease;
+}
+
+.ptr-spinner.active {
+  animation: ptr-spin 0.8s linear infinite;
+  transform: scale(1);
+}
+
+@keyframes ptr-spin {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  to {
+    transform: rotate(360deg) scale(1);
+  }
+}
+.reboot-fab {
+  position: fixed;
+  right: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 20;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-button);
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.18s ease, box-shadow 0.18s ease;
+}
+.reboot-fab:active {
+  transform: scale(0.94);
+}
+.reboot-fab.is-hot {
+  background: var(--surface);
+  color: var(--danger);
+}
+.reboot-fab.is-hot::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--surface);
+}
+
+.reboot-icon {
+  width: 26px;
+  height: 26px;
+  fill: currentColor;
+  filter: drop-shadow(var(--shadow-icon));
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.dialog-backdrop.show {
+  opacity: 1;
+}
+.dialog-backdrop .dialog {
+  background: var(--surface);
+  border-radius: 28px;
+  padding: 24px;
+  width: min(92vw, 520px);
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(16px) scale(0.96);
+  transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dialog-backdrop.is-diagnostic .dialog {
+  width: min(94vw, 680px);
+}
+.dialog-backdrop.show .dialog {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.dialog-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.dialog-message {
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1.45;
+  text-align: center;
+  margin-bottom: 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: min(58dvh, 460px);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.dialog-backdrop.is-diagnostic .dialog-message {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  padding: 12px;
+  max-height: min(64dvh, 560px);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+}
+.dialog-actions button {
+  flex: 1;
+  padding: 14px;
+  border: 0;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text);
+  transition: background 0.2s ease, transform 0.1s ease;
+  box-shadow: var(--shadow-button);
+  cursor: pointer;
+}
+.dialog-actions button:active {
+  background: var(--surface-pressed);
+  transform: scale(0.97);
+}
+.dialog-actions button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.toast {
+  position: fixed;
+  bottom: calc(100px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translate(-50%, 20px);
+  background: var(--surface);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: var(--shadow-soft);
+  z-index: 1000;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}</style></head>
+
+<body>
+  <div class="page">
+    <header class="app-header">
+      <div class="header-title">
+        <h1>Z Systemizer</h1>
+      </div>
+
+      <div class="header-actions">
+        <button class="icon-button refresh-button">刷新</button>
+        <div class="header-menu-wrap">
+          <button class="icon-button more-button">更多</button>
+          <div class="dropdown-menu">
+            <label class="menu-item toggle-item">
+              <input type="checkbox" id="toggle-only-sys">
+              <span>仅看已处理和待重启</span>
+            </label>
+            <div class="menu-divider"></div>
+            <button class="menu-item" id="menu-diagnose">运行诊断</button>
+            <button class="menu-item" id="menu-clear-icons">重新加载图标</button>
+            <button class="menu-item" id="menu-about">关于</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="summary-card">
+      <div>
+        <strong class="summary-systemized">9</strong>
+        <span class="summary-systemized-label">已处理</span>
+      </div>
+      <div>
+        <strong class="summary-pending">7</strong>
+        <span class="summary-pending-label">待重启</span>
+      </div>
+      <div class="summary-category is-clickable" role="button" tabindex="0" aria-label="切换分类">
+        <strong class="summary-category-title">app</strong>
+        <span class="summary-category-subtitle">system/app</span>
+      </div>
+    </section>
+
+    <section class="search-card">
+      <input type="search" class="search-input" placeholder="搜索包名或应用名..." enterkeyhint="search">
+    </section>
+
+    <section class="app-region">
+      <div class="ptr-indicator">
+        <div class="ptr-spinner"></div>
+      </div>
+
+      <!-- ptr-content：下滑刷新时整层只做 transform 位移，
+           与 .ptr-indicator 一同交给合成器，不再逐帧重排 .app-list -->
+      <div class="ptr-content">
+        <div class="status-line">已加载 21 个应用</div>
+
+        <section class="loading-state hidden">
+          正在准备应用列表...
+        </section>
+
+        <section class="empty-state hidden">
+          暂无可显示应用
+        </section>
+
+        <section class="app-list is-ready" aria-live="polite"><article class="app-card enter enter-done" style="--enter-delay: 0ms; --enter-index: 0; order: 0;" data-package="com.xunmeng.pinduoduo">
+      
+    <div class="icon-wrap" data-package="com.xunmeng.pinduoduo" data-icon-bound="1" data-icon-loaded="1">
+      <div class="icon-loader" style="display: none;"></div>
+      <img class="app-icon is-loaded" data-package="com.xunmeng.pinduoduo" alt="" draggable="false" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2224%22%20fill%3D%22%239B51E0%22%2F%3E%3Ctext%20x%3D%2248%22%20y%3D%2250%22%20font-size%3D%2244%22%20font-family%3D%22sans-serif%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%3E%E6%8B%BC%3C%2Ftext%3E%3C%2Fsvg%3E">
+      <div class="icon-fallback">拼</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">拼多多</div>
+      <div class="package-name">com.xunmeng.pinduoduo</div>
+      <div class="app-status is-pending-add"><span class="status-actual">未处理</span> <span class="status-intent">待系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 26ms; --enter-index: 1; order: 1;" data-package="com.xingin.xhs">
+      
+    <div class="icon-wrap" data-package="com.xingin.xhs" data-icon-bound="1" data-icon-loaded="1">
+      <div class="icon-loader" style="display: none;"></div>
+      <img class="app-icon is-loaded" data-package="com.xingin.xhs" alt="" draggable="false" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2224%22%20fill%3D%22%2300B8A9%22%2F%3E%3Ctext%20x%3D%2248%22%20y%3D%2250%22%20font-size%3D%2244%22%20font-family%3D%22sans-serif%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%3E%E5%B0%8F%3C%2Ftext%3E%3C%2Fsvg%3E">
+      <div class="icon-fallback">小</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">小红书</div>
+      <div class="package-name">com.xingin.xhs</div>
+      <div class="app-status is-pending-add"><span class="status-actual">未处理</span> <span class="status-intent">待系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 52ms; --enter-index: 2; order: 2;" data-package="com.eg.android.AlipayGphone">
+      
+    <div class="icon-wrap" data-package="com.eg.android.AlipayGphone" data-icon-bound="1" data-icon-loaded="1">
+      <div class="icon-loader" style="display: none;"></div>
+      <img class="app-icon is-loaded" data-package="com.eg.android.AlipayGphone" alt="" draggable="false" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2224%22%20fill%3D%22%2300B8A9%22%2F%3E%3Ctext%20x%3D%2248%22%20y%3D%2250%22%20font-size%3D%2244%22%20font-family%3D%22sans-serif%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%3E%E6%94%AF%3C%2Ftext%3E%3C%2Fsvg%3E">
+      <div class="icon-fallback">支</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">支付宝</div>
+      <div class="package-name">com.eg.android.AlipayGphone</div>
+      <div class="app-status is-pending-add"><span class="status-actual">未处理</span> <span class="status-intent">待系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 78ms; --enter-index: 3; order: 3;" data-package="com.zhihu.android">
+      
+    <div class="icon-wrap" data-package="com.zhihu.android" data-icon-bound="1" data-icon-loaded="1">
+      <div class="icon-loader" style="display: none;"></div>
+      <img class="app-icon is-loaded" data-package="com.zhihu.android" alt="" draggable="false" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2224%22%20fill%3D%22%239B51E0%22%2F%3E%3Ctext%20x%3D%2248%22%20y%3D%2250%22%20font-size%3D%2244%22%20font-family%3D%22sans-serif%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%3E%E7%9F%A5%3C%2Ftext%3E%3C%2Fsvg%3E">
+      <div class="icon-fallback">知</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">知乎</div>
+      <div class="package-name">com.zhihu.android</div>
+      <div class="app-status is-pending-add"><span class="status-actual">未处理</span> <span class="status-intent">待系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 104ms; --enter-index: 4; order: 4;" data-package="com.alibaba.android.rimet">
+      
+    <div class="icon-wrap" data-package="com.alibaba.android.rimet" data-icon-bound="1" data-icon-loaded="1">
+      <div class="icon-loader" style="display: none;"></div>
+      <img class="app-icon is-loaded" data-package="com.alibaba.android.rimet" alt="" draggable="false" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2224%22%20fill%3D%22%2300B8A9%22%2F%3E%3Ctext%20x%3D%2248%22%20y%3D%2250%22%20font-size%3D%2244%22%20font-family%3D%22sans-serif%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%3E%E9%92%89%3C%2Ftext%3E%3C%2Fsvg%3E">
+      <div class="icon-fallback">钉</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">钉钉</div>
+      <div class="package-name">com.alibaba.android.rimet</div>
+      <div class="app-status is-systemized"><span class="status-actual">已系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 130ms; --enter-index: 5; order: 5;" data-package="com.ss.android.ugc.aweme">
+      
+    <div class="icon-wrap" data-package="com.ss.android.ugc.aweme" data-icon-bound="1" data-icon-loaded="1">
+      <div class="icon-loader" style="display: none;"></div>
+      <img class="app-icon is-loaded" data-package="com.ss.android.ugc.aweme" alt="" draggable="false" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2296%22%3E%3Crect%20width%3D%2296%22%20height%3D%2296%22%20rx%3D%2224%22%20fill%3D%22%2327AE60%22%2F%3E%3Ctext%20x%3D%2248%22%20y%3D%2250%22%20font-size%3D%2244%22%20font-family%3D%22sans-serif%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%3E%E6%8A%96%3C%2Ftext%3E%3C%2Fsvg%3E">
+      <div class="icon-fallback">抖</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">抖音</div>
+      <div class="package-name">com.ss.android.ugc.aweme</div>
+      <div class="app-status is-systemized"><span class="status-actual">已系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 156ms; --enter-index: 6; order: 6;" data-package="com.taobao.taobao">
+      
+    <div class="icon-wrap" data-package="com.taobao.taobao" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.taobao.taobao" alt="" draggable="false">
+      <div class="icon-fallback">淘</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">淘宝</div>
+      <div class="package-name">com.taobao.taobao</div>
+      <div class="app-status is-systemized"><span class="status-actual">已系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 182ms; --enter-index: 7; order: 7;" data-package="com.iflytek.inputmethod">
+      
+    <div class="icon-wrap" data-package="com.iflytek.inputmethod" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.iflytek.inputmethod" alt="" draggable="false">
+      <div class="icon-fallback">讯</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">讯飞输入法</div>
+      <div class="package-name">com.iflytek.inputmethod</div>
+      <div class="app-status is-systemized"><span class="status-actual">已系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 208ms; --enter-index: 8; order: 8;" data-package="cn.wps.moffice_eng">
+      
+    <div class="icon-wrap" data-package="cn.wps.moffice_eng" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="cn.wps.moffice_eng" alt="" draggable="false">
+      <div class="icon-fallback">W</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">WPS Office</div>
+      <div class="package-name">cn.wps.moffice_eng</div>
+      <div class="app-status is-systemized"><span class="status-actual">已系统化</span></div>
+    </div>
+    <button class="switch is-on " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 234ms; --enter-index: 9; order: 9;" data-package="tv.danmaku.bili">
+      
+    <div class="icon-wrap" data-package="tv.danmaku.bili" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="tv.danmaku.bili" alt="" draggable="false">
+      <div class="icon-fallback">哔</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">哔哩哔哩</div>
+      <div class="package-name">tv.danmaku.bili</div>
+      <div class="app-status is-pending-remove"><span class="status-actual">已保活</span> <span class="status-intent">待移除系统化</span></div>
+    </div>
+    <button class="switch  " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 260ms; --enter-index: 10; order: 10;" data-package="com.autonavi.minimap">
+      
+    <div class="icon-wrap" data-package="com.autonavi.minimap" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.autonavi.minimap" alt="" draggable="false">
+      <div class="icon-fallback">高</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">高德地图</div>
+      <div class="package-name">com.autonavi.minimap</div>
+      <div class="app-status is-pending-remove"><span class="status-actual">已系统化</span> <span class="status-intent">待移除</span></div>
+    </div>
+    <button class="switch  " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 260ms; --enter-index: 11; order: 11;" data-package="com.example.ghostapp">
+      
+    <div class="icon-wrap" data-package="com.example.ghostapp" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.example.ghostapp" alt="" draggable="false">
+      <div class="icon-fallback">C</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">com.example.ghostapp</div>
+      <div class="package-name">com.example.ghostapp</div>
+      <div class="app-status is-pending-remove"><span class="status-actual">已系统化</span> <span class="status-intent">待移除</span></div>
+    </div>
+    <button class="switch  " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 260ms; --enter-index: 12; order: 12;" data-package="com.baidu.netdisk">
+      
+    <div class="icon-wrap" data-package="com.baidu.netdisk" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.baidu.netdisk" alt="" draggable="false">
+      <div class="icon-fallback">百</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">百度网盘</div>
+      <div class="package-name">com.baidu.netdisk</div>
+      <div class="app-status is-keepalive"><span class="status-actual">已保活</span></div>
+    </div>
+    <button class="switch  " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 260ms; --enter-index: 13; order: 13;" data-package="com.coolapk.market">
+      
+    <div class="icon-wrap" data-package="com.coolapk.market" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.coolapk.market" alt="" draggable="false">
+      <div class="icon-fallback">酷</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">酷安</div>
+      <div class="package-name">com.coolapk.market</div>
+      <div class="app-status is-keepalive"><span class="status-actual">已保活</span></div>
+    </div>
+    <button class="switch  " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article><article class="app-card enter enter-done" style="--enter-delay: 260ms; --enter-index: 14; order: 14;" data-package="com.netease.cloudmusic">
+      
+    <div class="icon-wrap" data-package="com.netease.cloudmusic" data-icon-bound="1">
+      <div class="icon-loader"></div>
+      <img class="app-icon" data-package="com.netease.cloudmusic" alt="" draggable="false">
+      <div class="icon-fallback">网</div>
+    </div>
+    <div class="app-info">
+      <div class="app-name">网易云音乐</div>
+      <div class="package-name">com.netease.cloudmusic</div>
+      <div class="app-status is-keepalive"><span class="status-actual">已保活</span></div>
+    </div>
+    <button class="switch  " aria-label="切换状态">
+      <span class="switch-thumb"></span>
+    </button>
+  
+    </article></section>
+      </div>
+    </section>
+  </div>
+
+  <button class="reboot-fab is-hot" aria-label="重启设备">
+    <svg class="reboot-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Zm5.66 3.76a1 1 0 0 1 1.42 0A9 9 0 1 1 4.92 6.76a1 1 0 1 1 1.42 1.41A7 7 0 1 0 17.66 8.17a1 1 0 0 1 0-1.41Z"></path>
+    </svg>
+  </button>
+
+  <script type="module" src="/src/main.ts"></script>
+<script>window.addEventListener('load', () => {
+  const pre = document.createElement('pre');
+  pre.id = '__probe';
+  const log = [];
+  const say = (m) => { log.push(m); pre.textContent = log.join('\n'); if (!document.body.contains(pre)) document.body.appendChild(pre); };
+  const rectOf = (c) => { const r = c.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
+  setTimeout(() => {
+    const vh = window.innerHeight;
+    const de = document.documentElement;
+    say('vh=' + vh);
+    say('cards_before=' + document.querySelectorAll('.app-card').length);
+    say('scrollH_before=' + de.scrollHeight);
+    const before = [...document.querySelectorAll('.app-card')].map(c => {
+      const r = rectOf(c);
+      return { pkg: c.dataset.package, ...r, inVp: r.bottom > 0 && r.top < vh };
+    });
+    say('inViewport_before=' + before.filter(c => c.inVp).length);
+    say('first_offByTop=' + JSON.stringify(before.filter(c => !c.inVp).slice(0, 3)));
+    const cb = document.getElementById('toggle-only-sys');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const leaving = [...document.querySelectorAll('.app-card.leave')];
+    say('leaving=' + leaving.length);
+    const off = leaving.filter(c => { const r = c.getBoundingClientRect(); return !(r.bottom > 0 && r.top < vh); });
+    say('leaving_OFFviewport=' + off.length);
+    say('leaving_onViewport=' + (leaving.length - off.length));
+    say('scrollH_at0=' + de.scrollHeight);
+    say('offSample=' + JSON.stringify(off.slice(0, 3).map(c => ({ pkg: c.dataset.package, ...rectOf(c) }))));
+    setTimeout(() => {
+      say('--- t=100ms ---');
+      say('scrollH_t100=' + de.scrollHeight);
+      say('leaveStillInDom=' + document.querySelectorAll('.app-card.leave').length);
+    }, 100);
+    setTimeout(() => {
+      say('--- t=240ms ---');
+      say('cards_t240=' + document.querySelectorAll('.app-card').length);
+      say('scrollH_t240=' + de.scrollHeight);
+    }, 240);
+  }, 1300);
+});</script>  <div class="preview-badge" style="position:fixed;left:10px;bottom:10px;z-index:99999;padding:5px 10px;border-radius:999px;font-size:11px;line-height:1;background:rgba(76,125,240,.92);color:#fff;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35);pointer-events:none;">预览模式 · 假数据</div>
+  <script>(function () {
+  function run() {
+    var q = window.__previewQuery;
+    var v = window.__previewView;
+    if (q) {
+      var input = document.querySelector('.search-input');
+      if (input) {
+        input.value = q;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    if (v === 'keepalive') {
+      var block = document.querySelector('.summary-category');
+      if (block) { block.click(); }
+    }
+  }
+  window.addEventListener('load', function () { setTimeout(run, 900); });
+})();</script>
+
+
+<pre id="__probe">vh=805
+cards_before=21
+scrollH_before=2539
+inViewport_before=5
+first_offByTop=[{"pkg":"com.ss.android.ugc.aweme","top":813,"bottom":901,"inVp":false},{"pkg":"com.taobao.taobao","top":913,"bottom":1001,"inVp":false},{"pkg":"com.iflytek.inputmethod","top":1013,"bottom":1101,"inVp":false}]
+leaving=6
+leaving_OFFviewport=6
+leaving_onViewport=0
+scrollH_at0=2629
+offSample=[{"pkg":"com.jingdong.app.mall","top":1813,"bottom":1901},{"pkg":"com.tencent.qqlive","top":1913,"bottom":2001},{"pkg":"com.tencent.mm","top":2013,"bottom":2101}]
+--- t=100ms ---
+scrollH_t100=2674
+leaveStillInDom=6
+--- t=240ms ---
+cards_t240=15
+scrollH_t240=2134</pre></body></html>
