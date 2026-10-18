@@ -17,6 +17,7 @@ export interface IconControllerOptions {
 export class IconController {
   private observer: IntersectionObserver | null = null
   private loaded = new Set<string>()
+  private timers = new Set<ReturnType<typeof setTimeout>>()
   private options: IconControllerOptions
 
   constructor(options: IconControllerOptions = {}) {
@@ -69,6 +70,10 @@ export class IconController {
 
   reset(root: ParentNode = document): void {
     this.loaded.clear()
+    // 清掉上一轮仍在计时的兜底定时器：否则它会在重载途中隐藏 loader、
+    // 点亮 fallback，表现为「点重新加载图标后整屏图标直接变灰」。
+    for (const timer of this.timers) clearTimeout(timer)
+    this.timers.clear()
 
     root.querySelectorAll<HTMLElement>('.icon-wrap').forEach((wrap) => {
       const img = wrap.querySelector<HTMLImageElement>('.app-icon')
@@ -119,12 +124,15 @@ export class IconController {
     let settled = false
 
     const timer = setTimeout(() => {
+      this.timers.delete(timer)
       if (settled) return
       if (loader) loader.style.display = 'none'
       if (fallback) fallback.classList.add('visible')
     }, ICON_LOAD_TIMEOUT_MS)
+    this.timers.add(timer)
 
     img.onload = () => {
+      this.timers.delete(timer)
       clearTimeout(timer)
       if (settled) return
 
@@ -139,6 +147,7 @@ export class IconController {
     }
 
     img.onerror = () => {
+      this.timers.delete(timer)
       clearTimeout(timer)
       if (settled) return
 

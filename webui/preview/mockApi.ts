@@ -131,17 +131,6 @@ export async function getSystemizerState(): Promise<SystemizerState> {
   }
 }
 
-export async function getSystemizerStateSafe(): Promise<SystemizerState> {
-  return getSystemizerState()
-}
-
-export async function listKeepalive(): Promise<string[]> {
-  await wait(50)
-  return Object.entries(records)
-    .filter(([, rec]) => rec.keepaliveOnly)
-    .map(([pkg]) => pkg)
-}
-
 export async function systemize(pkg: string): Promise<void> {
   await wait(260)
   records[pkg] = { target: 'app', status: 'pending_add', keepaliveOnly: false }
@@ -175,7 +164,11 @@ export async function setKeepalive(pkg: string, enabled: boolean): Promise<void>
   records[pkg] = rec
 
   if (enabled) {
-    const wasSystemized = !rec.keepaliveOnly && rec.status === 'active' && rec.target !== 'keepalive'
+    // 与 CLI 一致：PendingAdd（已落盘、未重启）同样算叠加态，否则重启后会被挂成系统应用
+    const wasSystemized =
+      !rec.keepaliveOnly &&
+      (rec.status === 'active' || rec.status === 'pending_add') &&
+      rec.target !== 'keepalive'
     rec.keepaliveOnly = true
     if (wasSystemized) {
       rec.status = 'pending_remove'

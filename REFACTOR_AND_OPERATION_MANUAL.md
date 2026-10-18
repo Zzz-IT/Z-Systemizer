@@ -66,10 +66,10 @@ CLI 源码位于 `cli/src/main.rs`，采用单文件内聚分区，核心函数�
 | 函数组 | 职责 |
 | :--- | :--- |
 | `read_state` / `write_state_atomic` | `systemizer-state.json` 原子读写（含 `.bak` 回滚） |
-| `read_keepalive_state` / `write_keepalive_state_atomic` | `keepalive-state.json` 独立持久化 |
+| `acquire_state_lock` | 写前抢 `systemizer-state.lock`（`create_new`，5 s 超时，60 s 判陈旧） |
 | `systemize` / `unsystemize` | 系统化 / 反系统化主流程 |
 | `reconcile` | 开机三段位（`install` / `post-fs-data` / `manual`）状态落定 |
-| `expected_keepalive_packages` / `expected_keepalive_entries` | **合并**两个 JSON 的包集合 |
+| `expected_keepalive_packages` / `expected_keepalive_entries` | 从单文件状态提取保活包集合（含 `keepalive_only` 叠加态） |
 | `KeepaliveCapabilities` / `apply_keepalive_multi_tiered` | 全版本保活能力矩阵（见 §3.3） |
 | `after_state_changed` | 状态变更统一出口（描述 + sysconfig + 运行时同步） |
 | `build_description` | 动态模块描述生成，口径与 WebUI 概览一致 |
@@ -77,7 +77,8 @@ CLI 源码位于 `cli/src/main.rs`，采用单文件内聚分区，核心函数�
 
 #### 关键设计决策
 
-1. **两份状态文件分离**：系统化意图与保活意图互不耦合，避免单点损坏扩散；
+1. **单一状态文件**：系统化意图与保活意图同存于 `systemizer-state.json`，保活用 `keepalive_only`
+   标记而非第二份文件 —— 两处意图不可能互相漂移，WebUI 一次 `state-json` 就能拿到完整快照；
 2. **`after_state_changed` 单一出口**：任何状态变更都必须经过它，保证派生数据不会漂移；
 3. **Windows 编译兼容**：`PermissionsExt` 与 `set_file_perm` 用 `#[cfg(unix)]` 守护，使主机端 `cargo check` / `cargo build` 可跑通。
 
@@ -222,30 +223,27 @@ export function getDisplayStatus(actual: ActualStatus, intent: IntentStatus) {
 > ⚠️ 本节是 WebUI `doKeepaliveFromSystemized`（[main.ts:519-538](webui/src/main.ts#L519-L538)）
 > 调用链路的真实实现，**与 v1.2.0 文档存在差异**，按现行代码为准。
 
-当用户在 `keepalive` 视图对已系统化（S3）应用打开开关时，WebUI 连续发两条 CLI 命令：
+当用户在 `keepalive` 视图对已系统化（S3）应用打开开关时，WebUI 只发一条 CLI 命令：
 
 ```
-set-keepalive <pkg> true   →   unsystemize <pkg>
+keepalive <pkg> on
 ```
 
-**第一步 `set-keepalive true`（[main.rs:1499-1565](cli/src/main.rs#L1499-L1565)）**
+**`set_keepalive_only(pkg, true)`（[main.rs:646](cli/src/main.rs#L646)）**
 
-1. `keepalive-state.json` 新增该包记录，`source=manual`；
-2. 立即下发全版本保活能力矩阵（§3.3）—— `deviceidle whitelist` / `standby-bucket active` /
+1. 按**物理事实**判定「原本是否已系统化」：`system/app/<pkg>` 目录存在，且记录为
+   `Active` / `PendingAdd`、`keepalive_only=false`；
+2. 是 → **立刻 `remove_dir_all`** 摘掉模块里的 `system/app/<pkg>`（应用进程仍在跑，无感知），
+   记录置 `keepalive_only=true` + `status=pending_remove` + `pending_boot_id`；
+   `target` 保留原类别，因为 `reconcile` 要靠它定位待清理目录；
+3. 否 → 纯保活：`target=keepalive`、`status=active`；
+4. 立即下发全版本保活能力矩阵（§3.3）—— `deviceidle whitelist` / `standby-bucket active` /
    三条 AppOps / TARE VIP / `am unfreeze` / `oom_score_adj=200`；
-3. 写入 `system/etc/sysconfig/z-systemizer-aosp-keepalive.xml` 静态白名单。
+5. 写入 `system/etc/sysconfig/z-systemizer-aosp-keepalive.xml` 静态白名单。
 
-**第二步 `unsystemize`（[main.rs:559-593](cli/src/main.rs#L559-L593)）**
-
-记录命中 `Active | PendingRemove` 分支：
-
-1. **立刻 `remove_dir_all` 删除模块里的 `system/app/<pkg>`**（应用进程仍在跑所以无感知）；
-2. `status` 从 `Active` 改写为 `pending_remove`，写入 `pending_boot_id`；
-3. 触发 `after_state_changed`，最终 `reconcile` 在下次开机清理 APK 缓存并删除 state 记录。
-
-也就是说「保活白名单已生效」与「系统化身份被撤销」是**同一秒**发生的——
-**`Active` 记录并没有保持不变**。这是 v1.2.1 状态机把保活与系统化纳入同一互斥域后的
-正确语义。
+「保活白名单已生效」与「系统化身份被撤销」在**同一条命令内**完成，
+中间不存在「既保活又仍挂载在 system/app」的窗口。v1.2.6 之前 WebUI 连发
+`keepalive on` + `unsystemize` 两条命令，两条之间失败就会留下不一致的中间态，现已合并。
 
 **界面上看到什么（依据 `actual` 派生，与视图无关）**
 
@@ -254,18 +252,18 @@ set-keepalive <pkg> true   →   unsystemize <pkg>
 | 仅保活视图小字 | 白字 **已保活** + 黄字 **待移除系统化**（按 `actual==='keepalive'` 派生） |
 | 仅保活视图开关 | **ON** |
 | app 视图开关 | **自动 OFF**（`isSwitchOn` 保证互斥） |
-| 概览第一栏「已处理」 | 不变（从 systemized 转移到 keepalive，仍计 1） |
+| 概览第一栏「已处理」 | 不变（叠加态仍计入已处理，只是归类从「系统化」变成「保活」） |
 | 概览第二栏「待重启」 | **+1** |
 | Toast | 「已加入保活白名单，重启后将移出 system/app」 |
 
 **关闭仅保活的语义**
 
-在保活视图关掉：仅清 `keepalive-state.json` 条目 + 撤销运行时白名单，`pending_remove`
-意图**保留**。得到一个既不保活又会被下次开机移除的应用，**不会自动恢复系统化身份**。
+在保活视图关掉：清 `keepalive_only` 标记 + 撤销运行时白名单。纯保活记录
+（`target=keepalive`）整条删除；叠加态记录**保留** `pending_remove` 意图。
+得到一个既不保活、又会被下次开机移除的应用，**不会自动恢复系统化身份**。
 若想恢复系统化，必须在 app 视图打开开关（撤销移除），`systemize` 走
-`PendingRemove + apks 缓存存在 → restored` 分支（[main.rs:488-504](cli/src/main.rs#L488-L504)），
-并物理剔除保活条目（[main.rs:448](cli/src/main.rs#L448)）。注意：**`apks` 缓存一旦丢失
-撤销会失败**，会退化为 `pending_add` 重新拷贝 APK。
+`PendingRemove + apks 缓存存在 → restored` 分支，并顺带清掉保活标记。
+注意：**`apks` 缓存一旦丢失，撤销会失败**，会退化为 `pending_add` 重新拷贝 APK。
 
 ---
 
@@ -286,12 +284,13 @@ set-keepalive <pkg> true   →   unsystemize <pkg>
 
 | 栏位 | 口径 | 说明 |
 | :--- | :--- | :--- |
-| 第一栏「已处理」 | `systemized` + `keepalive` | **全局口径**，与当前 `category` 解耦，两个视图读数完全相同 |
-| 第二栏「待重启」 | `pending_add` + `pending_remove` | 不双计数；保活即时生效，不产生待重启项 |
+| 第一栏「已处理」 | 物理已生效项 | `keepalive_only` 记录一律计入；`target≠keepalive` 的再计入「系统化」子项 |
+| 第二栏「待重启」 | `pending_add` + `pending_remove` | **与第一栏不互斥**：叠加态（已保活 + 待移除系统化）两栏同时计入 |
 | 第三栏「类别」 | `app` ⇄ `仅保活` | 可点击切换；`keepalive` 视图副标题显示 `实时生效` |
 
 > **设计理由**：概览是对设备整体状态的陈述，不应随用户切换列表视图而改变读数。
-> CLI 侧 `build_description` 读取同一口径（`keepalive-state.json` + `systemizer-state.json`），
+> 叠加态刻意同时计入两栏——保活此刻已生效（计入已处理），系统目录尚未摘除（计入待重启）。
+> CLI 侧 `build_description` 从同一份 `systemizer-state.json` 用同一口径计算，
 > 保证 KernelSU 管理器、WebUI 概览、模块介绍三处数字永远一致。
 
 #### 交互细节
@@ -388,7 +387,7 @@ Android 多用户、应用双开与系统分身场景下，`listPackages('all')`
 
 | 入口 | 互斥动作 | 实现 |
 | :--- | :--- | :--- |
-| `systemize(pkg, target)` | 从 `keepalive-state.json` 物理剔除该条目，并同步撤销 AOSP sysconfig 白名单标签 | `purge_keepalive_for_systemize(pkg)` |
+| `systemize(pkg, target)` | 清除该包的 `keepalive_only` 标记，并同步重算 AOSP sysconfig 白名单标签 | `systemize` 内保活清理分支 |
 | `set_keepalive(pkg, true)` | 若该应用处于 `pending_add`（待系统化），自动取消该意图并移除记录 | `set_keepalive` 内 `should_cancel` 分支 |
 
 > 清理失败仅记 `warn=*`，**绝不阻塞主流程**；最终一致性由 WebUI 二次同步与
@@ -461,8 +460,9 @@ fn get_android_sdk_level() -> u32 {
 
 #### 3.3.5 纯保活应用的同步链路（关键架构约束）
 
-`expected_keepalive_packages(state)` / `expected_keepalive_entries(state)` **必须同时合并**
-`keepalive-state.json` 中的包列表与 `systemizer-state.json` 中 `Active` / `PendingAdd` 记录。
+`expected_keepalive_packages(state)` / `expected_keepalive_entries(state)` **必须同时收两类记录**：
+`keepalive_only=true` 的（纯保活 + 叠加态），以及 `target≠keepalive` 且状态为
+`Active` / `PendingAdd` 的。
 否则纯保活应用（从未系统化）会在开机同步链路 `sync_runtime_deviceidle` / `sync_standby_buckets` /
 `update_aosp_keepalive_sysconfig` 中被完全漏掉，导致其保活能力全部失效。
 
@@ -524,7 +524,8 @@ keepalive_cap_post_notifications=true
   逐行解析 `package:` 前缀，命中 `.apk` 且路径落在 system 分区即 `Some(true)`；
   `pm` 缺失 / 非零退出一律返回 `None`。
 - `is_system_apk_path(path)`（`:260`）—— 用 `components().windows(2)` 匹配
-  `system/app` 与 `system/priv-app`，因此 `/system/system/app/...` 叠加挂载点同样命中。
+  `system/app` 与 `system/priv-app`，因此 `/system/system/app/...` 叠加挂载点同样命中
+  （`priv-app` 仅用于识别历史遗留挂载，模块本身不再生成该目录）。
 - `settle_action(status, keepalive_only, pm_system) -> SettleAction`（`:1400`）—— 纯函数状态机，
   四档：`Keep` / `PromoteToActive` / `CollapseToKeepalive` / `Drop`；
   `pm_system == None` 时**一律 `Keep`**（核心安全不变量）。

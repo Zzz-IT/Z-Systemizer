@@ -22,9 +22,11 @@ export interface AppEntry {
 // 后端持久化记录的精简视图，仅取渲染所需的字段
 export interface AppRecord {
   package: string
-  target: 'app'
+  target: 'app' | 'keepalive'
   status: 'active' | 'pending_add' | 'pending_remove'
   pendingBootId?: string | null
+  /** 仅保活标记：true 表示该包已在保活白名单，与系统化状态可叠加 */
+  keepaliveOnly?: boolean
 }
 
 export interface SystemizerState {

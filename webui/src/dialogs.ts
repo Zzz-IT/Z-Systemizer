@@ -10,13 +10,26 @@ export interface ConfirmOptions {
   diagnostic?: boolean
 }
 
-export function showConfirm(options: ConfirmOptions): Promise<boolean> {
+function waitForRemoval(node: Element): Promise<void> {
+  if (!node.isConnected) return Promise.resolve()
   return new Promise((resolve) => {
-    if (document.querySelector('.dialog-backdrop')) {
-      resolve(false)
-      return
-    }
+    const observer = new MutationObserver(() => {
+      if (node.isConnected) return
+      observer.disconnect()
+      resolve()
+    })
+    observer.observe(document.body, { childList: true })
+  })
+}
 
+export async function showConfirm(options: ConfirmOptions): Promise<boolean> {
+  // 同一时刻只允许一个弹窗。早先的实现发现已有 backdrop 就直接 resolve(false)，
+  // 于是连点两次开关时，第二次确认会被静默当成「用户取消」，动作凭空丢失。
+  // 改为排队：等当前弹窗关闭后再弹自己的。
+  const existing = document.querySelector<HTMLElement>('.dialog-backdrop')
+  if (existing) await waitForRemoval(existing)
+
+  return new Promise((resolve) => {
     const dialog = document.createElement('div')
     dialog.className = `dialog-backdrop ${options.diagnostic ? 'is-diagnostic' : ''}`
 

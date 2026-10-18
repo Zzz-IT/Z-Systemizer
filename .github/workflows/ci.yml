@@ -83,6 +83,12 @@ jobs:
           npm ci
           npm run build
 
+      - name: Typecheck and unit tests
+        run: |
+          cd webui
+          npm run typecheck
+          npm test
+
       - name: Verify WebUI output
         run: |
           test -f webui/dist/index.html

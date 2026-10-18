@@ -205,7 +205,9 @@ export function computeNextOnClick(
 // 汇总：全局口径（与当前分类无关）
 //   systemized = 已处理 = 物理已生效项 = 已系统化 + 已保活
 //   pending    = 待重启 = pending_add + pending_remove
-// 说明：同一应用不会同时计入两侧（app 与 keepalive 严格互斥），因此不存在双计数。
+// 说明：叠加态（已系统化 + 已保活，即 keepaliveOnly 且 target 仍为 app）会同时计入两侧，
+// 这是刻意的：保活此刻已生效（计入已处理），系统目录尚未摘除（计入待重启）。
+// CLI 的 module.prop 描述用同一口径（见 main.rs build_description）。
 // =============================================================================
 export function computeSummary(apps: UiAppEntry[]): SummaryStats {
   let systemized = 0
@@ -221,6 +223,19 @@ export function computeSummary(apps: UiAppEntry[]): SummaryStats {
   }
 
   return { systemized, pending }
+}
+
+// =============================================================================
+// 从持久状态提取保活集合（keepaliveOnly 为 true 的包）。
+// 此前 WebUI 为此单独跑一次 state-json，两次 exec 之间若有写入，
+// 记录与保活集合就来自不同快照，界面会拼出「已系统化但保活开关灭了」的脏视图。
+// =============================================================================
+export function deriveKeepalivePackages(state: SystemizerState): Set<string> {
+  const out = new Set<string>()
+  for (const [pkg, record] of Object.entries(state.apps ?? {})) {
+    if (record?.keepaliveOnly) out.add(pkg)
+  }
+  return out
 }
 
 // =============================================================================

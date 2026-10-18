@@ -26,21 +26,6 @@ export async function getSystemizerState(): Promise<SystemizerState> {
   return JSON.parse(out)
 }
 
-export async function getSystemizerStateSafe(): Promise<SystemizerState> {
-  try {
-    return await getSystemizerState()
-  } catch (e) {
-    console.warn('state-json failed, using empty state', e)
-    return {
-      schemaVersion: 1,
-      moduleId: 'ksu-systemizer',
-      updatedAt: 0,
-      bootId: '',
-      apps: {},
-    }
-  }
-}
-
 export async function getApps(): Promise<import('./types').AppEntry[]> {
   const rawPkgs = await listPackages('all')
   // 多用户 / 双开 / 分身场景下 listPackages 会返回重复 packageName，
@@ -100,22 +85,6 @@ export async function refreshDerived(): Promise<void> {
 export async function setKeepalive(pkg: string, enabled: boolean): Promise<void> {
   // CLI 实际入口是 `keepalive <pkg> on|off`（见 main.rs set_keepalive_only）。
   await shell(`${CLI} keepalive ${shQuote(pkg)} ${enabled ? 'on' : 'off'}`)
-}
-
-export async function listKeepalive(): Promise<string[]> {
-  try {
-    // CLI 无独立 keepalive 列表命令，从 state-json 里筛 keepaliveOnly。
-    const raw = await shell(`${CLI} state-json`)
-    const parsed = JSON.parse(raw) as {
-      apps?: Record<string, { keepaliveOnly?: boolean }>
-    }
-    return Object.entries(parsed.apps ?? {})
-      .filter(([, rec]) => rec?.keepaliveOnly === true)
-      .map(([pkg]) => pkg)
-  } catch (e) {
-    console.warn('list keepalive failed', e)
-    return []
-  }
 }
 
 export interface RiskInfo {

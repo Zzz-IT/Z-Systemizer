@@ -1,11 +1,13 @@
 {
   "name": "z-systemizer-webui",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "type": "module",
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "preview:mock": "vite --config vite.preview.config.ts"
+    "preview:mock": "vite --config vite.preview.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/stateMachine.test.ts"
   },
   "dependencies": {
     "kernelsu-alt": "^3.1.1"

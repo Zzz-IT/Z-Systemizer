@@ -2,11 +2,10 @@
 
 import {
   getAppsSafe,
-  getSystemizerStateSafe,
+  getSystemizerState,
   systemize,
   unsystemize,
   setKeepalive,
-  listKeepalive,
   diagnose,
   rebootDevice,
   refreshDerived,
@@ -17,6 +16,7 @@ import {
   buildUiApps,
   computeNextOnClick,
   computeSummary,
+  deriveKeepalivePackages,
   filterByCategory,
   getDisplayStatus,
   hasPending,
@@ -532,11 +532,11 @@ async function doKeepaliveFromSystemized(app: UiAppEntry, result: ClickResult) {
   app.busy = true
   updateCardDOM(app.packageName)
   try {
-    // 保活即时生效（CLI `keepalive <pkg> on`），随后标记移出系统分区。
-    // 注意：两条命令非原子，若第二条失败会留下「既保活又仍系统化」的状态。
+    // CLI `keepalive <pkg> on` 对已系统化应用本身就是一次原子迁移：
+    // 摘掉 system/app 目录 + 置 keepalive_only + 标记 pending_remove。
+    // 因此不再补一条 unsystemize（多余，且会引入两条命令之间的中间态）。
     await setKeepalive(app.packageName, true)
     state.keepalivePackages.add(app.packageName)
-    await unsystemize(app.packageName)
     const next = applyClickResult(app, result)
     Object.assign(app, next)
     app.busy = false
@@ -690,9 +690,10 @@ async function refresh(mode: RefreshMode = 'manual') {
     const oldApps = state.apps
 
     const apps = await getAppsSafe()
-    const sysState = await getSystemizerStateSafe()
-    const keepaliveList = await listKeepalive()
-    state.keepalivePackages = new Set(keepaliveList)
+    // 只读一次 state-json：state 与保活集合必须来自同一快照，
+    // 且读取失败必须冒泡（曾经 catch 成空状态，界面会把已系统化/已保活全显示成未处理）。
+    const sysState = await getSystemizerState()
+    state.keepalivePackages = deriveKeepalivePackages(sysState)
     state.rawState = sysState
 
     let nextApps = buildUiApps(apps, sysState, state.keepalivePackages)
@@ -953,7 +954,7 @@ function bindEvents() {
       showConfirm({
         title: '关于 Z-Systemizer',
         htmlMessage:
-          `Z-Systemizer 模块 WebUI<br>版本: 1.2.5<br>持久状态与自动同步<br>(获取模块信息失败: ${escapeHtml(errorMessage(e))})<br><br>` +
+          `Z-Systemizer 模块 WebUI<br>版本: 未知<br>持久状态与自动同步<br>(获取模块信息失败: ${escapeHtml(errorMessage(e))})<br><br>` +
           `<a href="https://github.com/Zzz-IT/Z-Systemizer" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 500;">访问 GitHub 仓库</a>`,
         cancelText: '关闭',
         confirmText: '确定',
@@ -1054,13 +1055,15 @@ function bindEvents() {
     // 已接管：永远 preventDefault 阻止页面滚动，
     // 并把 dy clamp 到 0 继续更新距离与角度。
     e.preventDefault()
+    // 先同步记账、再排队上屏：touchend 会 cancel 掉尚未执行的帧，
+    // 若 distance 只在帧回调里更新，快速甩动后松手就会读到旧值而丢掉这次刷新。
+    const eased = Math.min(Math.pow(Math.max(0, dy), 0.82), maxPull)
+    distance = eased
     if (frame) return
     frame = requestAnimationFrame(() => {
       frame = 0
       if (!pulling) return
-      const d = Math.max(0, dy)
-      const eased = Math.min(Math.pow(d, 0.82), maxPull)
-      applyPull(eased)
+      applyPull(distance)
     })
   }, { passive: false })
 

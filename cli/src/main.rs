@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{exit, id, Command};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -194,6 +195,101 @@ fn write_state_atomic(state: &mut StateFile) -> Result<(), String> {
     Ok(())
 }
 
+// 跨进程互斥锁：state 是「读-改-写」，WebUI（exec）、模块脚本（reconcile）、
+// 终端三处可能同时改它，没有锁时后写者会用旧快照覆盖前者的改动。
+// 用 create_new 原子建锁文件，超时 5s，超过 60s 视为崩溃残留直接接管。
+const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+const STATE_LOCK_STALE: Duration = Duration::from_secs(60);
+
+struct StateLock {
+    path: PathBuf,
+}
+
+impl Drop for StateLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_state_lock() -> Result<StateLock, String> {
+    let path = state_file_path().with_file_name("systemizer-state.lock");
+    if let Some(dir) = path.parent() {
+        if !dir.exists() {
+            create_dir(dir)?;
+        }
+    }
+
+    let deadline = Instant::now() + STATE_LOCK_TIMEOUT;
+
+    loop {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Ok(StateLock { path }),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                let stale = fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .map(|d| d > STATE_LOCK_STALE)
+                    .unwrap_or(false);
+
+                if stale {
+                    let _ = fs::remove_file(&path);
+                    continue;
+                }
+
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "state is busy (lock held > {}s): {}",
+                        STATE_LOCK_TIMEOUT.as_secs(),
+                        path.display()
+                    ));
+                }
+
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) => return Err(format!("failed to create state lock: {}", e)),
+        }
+    }
+}
+
+// 原子替换目录：先把旧目录改名备份，替换成功再删备份。
+// 直接 remove_dir_all(dst) 后再 rename，一旦 rename 失败目标目录就凭空消失，
+// 在 overlay 下表现为「应用被卸载」。
+fn replace_dir_atomic(tmp: &Path, dst: &Path) -> Result<(), String> {
+    let parent = dst
+        .parent()
+        .ok_or_else(|| format!("bad dst path: {}", dst.display()))?;
+    let name = dst
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "dir".to_string());
+    let bak = parent.join(format!(".{}.{}.bak", name, id()));
+
+    let had_old = dst.exists();
+    if had_old {
+        let _ = fs::remove_dir_all(&bak);
+        fs::rename(dst, &bak).map_err(|e| format!("backup dst failed: {}", e))?;
+    }
+
+    if let Err(e) = fs::rename(tmp, dst) {
+        if had_old {
+            let _ = fs::rename(&bak, dst);
+        }
+        let _ = fs::remove_dir_all(tmp);
+        return Err(format!("rename tmp to dst failed: {}", e));
+    }
+
+    if had_old {
+        let _ = fs::remove_dir_all(&bak);
+    }
+
+    Ok(())
+}
+
 fn is_valid_pkg(pkg: &str) -> bool {
     !pkg.is_empty()
         && pkg.len() <= 255
@@ -216,10 +312,11 @@ fn safe_pkg(pkg: &str) -> Result<String, String> {
 fn validate_target(target: &str) -> Result<&str, String> {
     match target {
         TARGET_APP => Ok(TARGET_APP),
-        TARGET_KEEPALIVE => Ok(TARGET_KEEPALIVE),
-        // priv-app 目录已不再使用（README 同样声明不支持），
-        // 入口一并关闭，避免 CLI 仍能写入本模块不会挂载的 /system/priv-app。
-        _ => Err("only system/app and keepalive are supported".to_string()),
+        // systemize 只写 system/app：priv-app 本模块不挂载，
+        // keepalive 不是落盘目标（走 `keepalive <pkg> on`，只写白名单）。
+        _ => {
+            Err("only system/app is supported; use `keepalive <pkg> on` for keepalive".to_string())
+        }
     }
 }
 
@@ -348,8 +445,7 @@ fn sync_dir(src: &Path, dst: &Path, apply_context: bool) -> Result<(), String> {
         }
     }
 
-    let _ = fs::remove_dir_all(dst);
-    fs::rename(&tmp, dst).map_err(|e| format!("rename tmp to dst failed: {}", e))?;
+    replace_dir_atomic(&tmp, dst)?;
 
     set_file_perm(dst, 0o755)?;
 
@@ -375,10 +471,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    if target == TARGET_PRIV {
-        println!("warning=priv-app");
-    }
-
+    let _lock = acquire_state_lock()?;
     let mut state = read_state()?;
 
     let root = moddir();
@@ -461,9 +554,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
         set_file_perm(&dst, 0o644)?;
     }
 
-    let _ = fs::remove_dir_all(&pkg_apks_dir);
-    fs::rename(&tmp_apks_dir, &pkg_apks_dir)
-        .map_err(|e| format!("rename to state/apks/pkg failed: {}", e))?;
+    replace_dir_atomic(&tmp_apks_dir, &pkg_apks_dir)?;
 
     sync_dir(&pkg_apks_dir, &app_dir, true)?;
 
@@ -497,6 +588,7 @@ fn systemize(pkg: &str, target: &str, dry_run: bool) -> Result<(), String> {
 
 fn unsystemize(pkg: &str) -> Result<(), String> {
     let pkg = safe_pkg(pkg)?;
+    let _lock = acquire_state_lock()?;
     let mut state = read_state()?;
 
     if let Some(record) = state.apps.get_mut(&pkg) {
@@ -559,6 +651,7 @@ fn unsystemize(pkg: &str) -> Result<(), String> {
 
 fn set_keepalive_only(pkg: &str, enabled: bool) -> Result<(), String> {
     let pkg = safe_pkg(pkg)?;
+    let _lock = acquire_state_lock()?;
     let mut state = read_state()?;
 
     if enabled {
@@ -568,13 +661,17 @@ fn set_keepalive_only(pkg: &str, enabled: bool) -> Result<(), String> {
 
         let now = current_time();
 
-        // 判定「原本是否已系统化」：只有已生效在 system/app|priv-app 的记录，
-        // 开保活才构成「转为仅保活」的叠加态；普通应用直接就是纯保活。
+        // 判定「原本是否已系统化」按物理事实：system/app|priv-app 下确实存在该包目录。
+        // PendingAdd（已落盘、尚未重启生效）同样算叠加态 —— 不摘目录的话，
+        // 重启后 overlay 会把它挂成系统应用，与「仅保活」的意图相反。
         let was_systemized = state
             .apps
             .get(&pkg)
             .map(|r| {
-                !r.keepalive_only && r.status == AppStatus::Active && r.target != TARGET_KEEPALIVE
+                !r.keepalive_only
+                    && r.target != TARGET_KEEPALIVE
+                    && matches!(r.status, AppStatus::Active | AppStatus::PendingAdd)
+                    && (app_dir.is_dir() || priv_dir.is_dir())
             })
             .unwrap_or(false);
 
@@ -583,7 +680,7 @@ fn set_keepalive_only(pkg: &str, enabled: bool) -> Result<(), String> {
         if was_systemized {
             let _ = fs::remove_dir_all(&app_dir);
             let _ = fs::remove_dir_all(&priv_dir);
-            // 保留 APK 缓存，方便用户切回
+            // APK 缓存先留着，重启后由 reconcile 的 PendingRemove 收尾一并清理
         }
 
         let record = state.apps.entry(pkg.clone()).or_insert_with(|| AppRecord {
@@ -675,6 +772,7 @@ fn validate_phase(phase: &str) -> Result<&str, String> {
 }
 
 fn reconcile(phase: &str) -> Result<(), String> {
+    let _lock = acquire_state_lock()?;
     let mut state = read_state()?;
     let boot_id = get_boot_id();
 
@@ -682,7 +780,6 @@ fn reconcile(phase: &str) -> Result<(), String> {
     let apks_root = root.join("state").join("apks");
 
     create_dir(&root.join("system").join(TARGET_APP))?;
-    create_dir(&root.join("system").join(TARGET_PRIV))?;
     create_dir(&apks_root)?;
 
     let mut keys_to_remove = Vec::new();
@@ -692,9 +789,36 @@ fn reconcile(phase: &str) -> Result<(), String> {
     let apply_context = phase != "post-fs-data";
 
     for (pkg, record) in state.apps.iter_mut() {
-        let target_root = root.join("system").join(&record.target);
-        let app_dir = target_root.join(pkg);
+        let mut target_root = root.join("system").join(&record.target);
+        let mut app_dir = target_root.join(pkg);
         let pkg_apks_dir = apks_root.join(pkg);
+
+        // 历史遗留迁移：旧版本支持 priv-app，本模块已不再挂载它。
+        // 留着的记录会永远卡在「已系统化」且 verify 报文件缺失，这里一次性收敛。
+        if record.target == TARGET_PRIV {
+            let _ = fs::remove_dir_all(&app_dir);
+            if record.keepalive_only {
+                // 叠加态：系统目录已摘除，直接归一为纯保活
+                record.target = TARGET_KEEPALIVE.to_string();
+                record.status = AppStatus::Active;
+                record.pending_boot_id = None;
+                record.updated_at = current_time();
+                changed = true;
+                continue;
+            }
+            if !apks_root.join(pkg).is_dir() {
+                // 没有缓存可迁移，记录已无意义
+                keys_to_remove.push(pkg.clone());
+                changed = true;
+                continue;
+            }
+            // 有缓存 → 迁到 system/app，保住「已系统化」的意图
+            record.target = TARGET_APP.to_string();
+            record.updated_at = current_time();
+            target_root = root.join("system").join(&record.target);
+            app_dir = target_root.join(pkg);
+            changed = true;
+        }
 
         // 纯保活的「待系统化」转正：与文件系统路由解耦，独立判定。
         // 纯保活不落盘任何文件，所以只要跨过一次开机就直接转正，
@@ -955,12 +1079,8 @@ fn diagnose() -> Result<(), String> {
 
     let mut file_integrity = true;
     let mut cache_integrity = true;
-    let mut priv_file_integrity = true;
-    let mut priv_cache_integrity = true;
 
     let mut state_keepalive_only = 0usize;
-    let mut priv_app_missing_count = 0usize;
-    let mut priv_cache_missing_count = 0usize;
 
     for (pkg, record) in &state.apps {
         if record.keepalive_only {
@@ -992,40 +1112,25 @@ fn diagnose() -> Result<(), String> {
             AppStatus::Active | AppStatus::PendingAdd => {
                 if !system_app_exists {
                     file_integrity = false;
-                    if record.target == TARGET_PRIV {
-                        priv_file_integrity = false;
-                        priv_app_missing_count += 1;
-                    }
                 }
                 if !state_apks_exists {
                     cache_integrity = false;
-                    if record.target == TARGET_PRIV {
-                        priv_cache_integrity = false;
-                        priv_cache_missing_count += 1;
-                    }
                 }
             }
             AppStatus::PendingRemove => {
                 if system_app_exists {
                     file_integrity = false;
-                    if record.target == TARGET_PRIV {
-                        priv_file_integrity = false;
-                    }
                 }
             }
         }
     }
 
     println!("state_keepalive_only={}", state_keepalive_only);
-    println!("priv_app_missing_count={}", priv_app_missing_count);
-    println!("priv_cache_missing_count={}", priv_cache_missing_count);
 
     println!("derived_description_synced={}", desc_synced);
     println!("derived_keepalive_synced={}", keepalive_synced);
     println!("derived_file_integrity={}", file_integrity);
     println!("derived_cache_integrity={}", cache_integrity);
-    println!("derived_priv_file_integrity={}", priv_file_integrity);
-    println!("derived_priv_cache_integrity={}", priv_cache_integrity);
 
     println!("keepalive_expected_entries={}", keepalive_expected.len());
     println!("keepalive_actual_entries={}", keepalive_actual.len());
@@ -1054,7 +1159,10 @@ fn diagnose() -> Result<(), String> {
 
     let expected_pkgs = expected_keepalive_packages(&state);
     for pkg in &expected_pkgs {
-        let contains = deviceidle_whitelist.contains(pkg);
+        // 精确匹配第 2 列包名：contains() 会让 com.foo 命中 com.foobar
+        let contains = deviceidle_whitelist
+            .lines()
+            .any(|line| line.split(',').nth(1).map(str::trim) == Some(pkg.as_str()));
         println!("deviceidle_runtime_contains_package={}:{}", pkg, contains);
         if !contains {
             println!("deviceidle_runtime_missing_package={}", pkg);
@@ -1090,14 +1198,12 @@ fn build_description(state: &StateFile) -> String {
     let active_app = state
         .apps
         .values()
-        .filter(|r| r.status == AppStatus::Active && !r.keepalive_only && r.target == TARGET_APP)
+        .filter(|r| {
+            r.status == AppStatus::Active && !r.keepalive_only && r.target != TARGET_KEEPALIVE
+        })
         .count();
 
-    let keepalive_only = state
-        .apps
-        .values()
-        .filter(|r| r.keepalive_only && r.status != AppStatus::PendingRemove)
-        .count();
+    let keepalive_only = state.apps.values().filter(|r| r.keepalive_only).count();
 
     let pending_add = state
         .apps
@@ -1111,7 +1217,9 @@ fn build_description(state: &StateFile) -> String {
         .filter(|r| r.status == AppStatus::PendingRemove)
         .count();
 
-    // 已处理 = 已系统化 + 已保活（与 WebUI 概览「已处理 / 待重启」两栏口径一致）
+    // 已处理 = 已系统化 + 已保活，按「用户当前想要的归属」计：
+    // 叠加态（keepalive_only + PendingRemove）算已处理（保活已生效），
+    // 同时也算待重启（系统目录尚未摘除），与 WebUI 概览两栏一致。
     let processed = active_app + keepalive_only;
     let pending = pending_add + pending_remove;
 
@@ -1174,9 +1282,8 @@ fn update_module_prop_description(desc: &str) -> Result<(), String> {
 
     fs::write(&tmp, next).map_err(|e| format!("failed to write module.prop tmp: {}", e))?;
 
+    set_file_perm(&tmp, 0o644)?;
     fs::rename(&tmp, &path).map_err(|e| format!("failed to replace module.prop: {}", e))?;
-
-    set_file_perm(&path, 0o644)?;
 
     Ok(())
 }
@@ -1237,9 +1344,8 @@ fn update_aosp_keepalive_sysconfig(state: &StateFile) -> Result<(), String> {
 
     let tmp = path.with_extension(format!("xml.{}.tmp", id()));
     fs::write(&tmp, xml).map_err(|e| format!("failed to write keepalive sysconfig tmp: {}", e))?;
+    set_file_perm(&tmp, 0o644)?;
     fs::rename(&tmp, &path).map_err(|e| format!("failed to replace keepalive sysconfig: {}", e))?;
-
-    set_file_perm(&path, 0o644)?;
 
     Ok(())
 }
@@ -1473,6 +1579,7 @@ fn settle_pending_via_pm(state: &mut StateFile) -> bool {
 }
 
 fn refresh_derived() -> Result<(), String> {
+    let _lock = acquire_state_lock()?;
     let mut state = read_state()?;
     if settle_pending_via_pm(&mut state) {
         write_state_atomic(&mut state)?;
@@ -1606,46 +1713,37 @@ fn verify_derived() -> Result<(), String> {
 
     let mut file_integrity = true;
     let mut cache_integrity = true;
-    let mut priv_file_integrity = true;
-    let mut priv_cache_integrity = true;
 
     for (pkg, record) in &state.apps {
+        let system_root = root.join("system").join(&record.target);
+        let app_dir = system_root.join(pkg);
+
+        // 纯保活（含叠加态收尾后的记录）不落盘系统目录，也没有 APK 缓存：
+        // 唯一需要校验的是「系统目录不该残留」，不能拿缓存去判失败。
         if record.keepalive_only {
-            let apk_dir = apks_root.join(pkg);
-            if !apk_dir.is_dir() {
-                cache_integrity = false;
-                println!("cache_missing_package={}", pkg);
+            if record.target != TARGET_KEEPALIVE && app_dir.is_dir() {
+                file_integrity = false;
+                println!("file_pending_remove_system_app_exists={}", pkg);
             }
             continue;
         }
 
-        let system_root = root.join("system").join(&record.target);
-        let app_dir = system_root.join(pkg);
         let apk_dir = apks_root.join(pkg);
 
         match record.status {
             AppStatus::Active | AppStatus::PendingAdd => {
                 if !app_dir.is_dir() {
                     file_integrity = false;
-                    if record.target == TARGET_PRIV {
-                        priv_file_integrity = false;
-                    }
                     println!("file_system_app_missing={}", pkg);
                 }
                 if !apk_dir.is_dir() {
                     cache_integrity = false;
-                    if record.target == TARGET_PRIV {
-                        priv_cache_integrity = false;
-                    }
                     println!("cache_missing_package={}", pkg);
                 }
             }
             AppStatus::PendingRemove => {
                 if app_dir.is_dir() {
                     file_integrity = false;
-                    if record.target == TARGET_PRIV {
-                        priv_file_integrity = false;
-                    }
                     println!("file_pending_remove_system_app_exists={}", pkg);
                 }
             }
@@ -1658,8 +1756,6 @@ fn verify_derived() -> Result<(), String> {
     println!("keepalive_actual_entries={}", keepalive_actual.len());
     println!("file_integrity={}", file_integrity);
     println!("cache_integrity={}", cache_integrity);
-    println!("priv_file_integrity={}", priv_file_integrity);
-    println!("priv_cache_integrity={}", priv_cache_integrity);
 
     Ok(())
 }
@@ -1699,6 +1795,7 @@ fn run() -> Result<(), String> {
             status(&args[2])
         }
         "state-json" => {
+            let _lock = acquire_state_lock()?;
             let mut state = read_state()?;
             // WebUI 每次拉状态前落定一次软重启的待处理项（幂等，不轮询）
             if settle_pending_via_pm(&mut state) {
@@ -1857,11 +1954,12 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_target_accepts_app_and_keepalive() {
+    fn test_validate_target_only_accepts_app() {
         assert!(validate_target("app").is_ok());
         // priv-app 入口已移除
         assert!(validate_target("priv-app").is_err());
-        assert!(validate_target("keepalive").is_ok());
+        // keepalive 不是落盘目标：保活走 keepalive 子命令，不接受 systemize keepalive
+        assert!(validate_target("keepalive").is_err());
         assert!(validate_target("vendor").is_err());
         assert!(validate_target("product").is_err());
     }
@@ -1938,7 +2036,11 @@ mod tests {
         );
 
         let desc = build_description(&state);
-        assert!(desc.contains("仅保活 1 个"));
+        assert!(
+            desc.contains("已处理 2 个（系统化 1 个，保活 1 个）"),
+            "{}",
+            desc
+        );
         assert!(!desc.contains("priv-app"));
     }
 
@@ -1984,11 +2086,6 @@ mod tests {
             "com.sysapp".to_string(),
             mk("com.sysapp", "app", false, AppStatus::Active),
         );
-        // 真正系统化的 priv-app：应写入 sysconfig
-        state.apps.insert(
-            "com.privapp".to_string(),
-            mk("com.privapp", "priv-app", false, AppStatus::PendingAdd),
-        );
         // keepaliveOnly（仍在 /data/app）：不应写入 sysconfig
         state.apps.insert(
             "com.keepalive1".to_string(),
@@ -1997,7 +2094,6 @@ mod tests {
 
         let syscfg = expected_sysconfig_packages(&state);
         assert!(syscfg.contains(&"com.sysapp".to_string()));
-        assert!(syscfg.contains(&"com.privapp".to_string()));
         assert!(
             !syscfg.contains(&"com.keepalive1".to_string()),
             "keepaliveOnly 不是系统应用，写入 sysconfig 会在开机解析时被跳过"
@@ -2007,9 +2103,9 @@ mod tests {
         let runtime = expected_keepalive_packages(&state);
         assert!(runtime.contains(&"com.keepalive1".to_string()));
 
-        // entries 应只来自 sysconfig 集合：2 个包 × 1 个标签 = 2 条
+        // entries 应只来自 sysconfig 集合：1 个包 × 1 个标签 = 1 条
         let entries = expected_keepalive_entries(&state);
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 1);
     }
 
     #[test]
@@ -2432,5 +2528,68 @@ mod tests {
             settle_action(AppStatus::PendingRemove, true, Some(true)),
             SettleAction::Keep
         );
+    }
+
+    // 已落盘但还没重启生效（PendingAdd）的应用开保活：
+    // 目录必须当场摘掉，否则重启后 overlay 会把它挂成系统应用，与「仅保活」相反。
+    #[test]
+    fn test_keepalive_on_pending_add_removes_system_dir() {
+        let dir = setup_mock_moddir();
+
+        seed_record(
+            "com.example.pending",
+            "app",
+            AppStatus::PendingAdd,
+            true,
+            false,
+            true,
+        );
+        let app_dir = dir.join("system").join("app").join("com.example.pending");
+        assert!(app_dir.is_dir());
+
+        set_keepalive_only("com.example.pending", true).unwrap();
+
+        let state = read_state().unwrap();
+        let r = &state.apps["com.example.pending"];
+        assert!(r.keepalive_only);
+        assert_eq!(r.status, AppStatus::PendingRemove);
+        assert_eq!(r.target, "app");
+        assert!(!app_dir.is_dir(), "PendingAdd 开保活也必须当场摘掉系统目录");
+
+        teardown_mock_moddir(dir);
+    }
+
+    // 历史遗留的 priv-app 记录：本模块不再挂载 priv-app，reconcile 必须把它收敛，
+    // 否则会永远停在「已系统化」，verify 也会一直报文件缺失。
+    #[test]
+    fn test_reconcile_migrates_legacy_priv_app_record() {
+        let dir = setup_mock_moddir();
+
+        seed_record(
+            "com.legacy.priv",
+            "priv-app",
+            AppStatus::Active,
+            false,
+            false,
+            true,
+        );
+        let priv_dir = dir.join("system").join("priv-app").join("com.legacy.priv");
+        assert!(priv_dir.is_dir());
+
+        reconcile("manual").unwrap();
+
+        let state = read_state().unwrap();
+        let r = &state.apps["com.legacy.priv"];
+        assert_eq!(r.target, TARGET_APP, "遗留 priv-app 应迁移到 system/app");
+        assert!(!priv_dir.is_dir(), "priv-app 残留目录必须清掉");
+        assert!(
+            dir.join("system")
+                .join("app")
+                .join("com.legacy.priv")
+                .is_dir(),
+            "有缓存时应迁到 system/app，保住已系统化意图"
+        );
+
+        teardown_mock_moddir(dir);
     }
 }
