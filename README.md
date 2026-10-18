@@ -2,12 +2,16 @@
 
 Z Systemizer 是一个面向 KernelSU 环境的 system/app 管理模块。它通过 KernelSU WebUI 和 Rust CLI 协同工作，将用户选择的已安装应用复制到模块目录中的 `system/app` 文件树，并在重启后由 KernelSU 模块覆盖机制让系统按 `/system/app` 路径扫描。
 
+除系统化外还提供**仅保活**：不碰 `/system`，只把应用加入运行时白名单（`deviceidle`、`appops`、待机桶）与 AOSP 省电白名单，开关即时生效，无需重启。两类互斥，同一应用只处于其一。
+
 本项目当前明确只支持 `system/app`，不支持 `priv-app`，也不提供 Android APK 界面。
 
 ## 功能特性
 
 - 使用 KernelSU WebUI 管理应用，不需要安装额外 APK
-- 使用 Rust CLI 执行系统化、取消系统化、状态查询和诊断
+- 使用 Rust CLI 执行系统化、仅保活、取消系统化、关闭保活、状态查询和诊断
+- 支持「仅保活」：应用不必系统化即可常驻后台，开关实时生效
+- 系统化与仅保活两类互斥；已系统化应用转仅保活会即时摘除 `system/app` 并排队待移除
 - 列出已安装应用，支持应用名 / 包名搜索
 - 支持 split APK，会复制 `pm path <package>` 返回的所有 APK 文件
 - 使用持久状态文件记录系统化意图，避免只依赖目录扫描
@@ -17,7 +21,7 @@ Z Systemizer 是一个面向 KernelSU 环境的 system/app 管理模块。它通
 - 开机阶段通过 `post-fs-data.sh` 执行轻量一致性修复
 - 运行阶段通过 `service.sh` 刷新派生配置
 - 动态更新模块 `module.prop` 的 `description=` 字段
-- 为已系统化 / 待系统化应用生成 AOSP 省电白名单 sysconfig 辅助配置
+- 为已系统化 / 待系统化 / 仅保活应用生成 AOSP 省电白名单 sysconfig 辅助配置
 - WebUI 使用实色卡片、淡阴影层次、图标懒加载和自然进入动画
 
 ## 当前限制
@@ -85,6 +89,8 @@ Z Systemizer 不会在用户点击开关时直接修改真实 `/system` 分区�
 | `active` | 已完成系统化状态落定 |
 | `pending_remove` | 已从模块 `system/app` 移除，等待下次开机后完成移除 |
 
+记录另带 `keepaliveOnly` 标记：为 `true` 表示该包已加入保活白名单。它可以与 `pending_remove` 叠加——「已系统化应用改开仅保活」即为此态：保活立刻生效，同时排队在下次重启把 `system/app` 摘掉。纯保活记录（`target=keepalive`）不落盘任何文件，关闭保活即删除记录。
+
 ## 开机与派生配置
 
 模块包含三个脚本：
@@ -115,7 +121,7 @@ Z Systemizer：已处理 3 个（系统化 1 个，保活 2 个；待系统化 1
 
 ## AOSP 保活辅助说明
 
-Z Systemizer 会根据 `active` 和 `pending_add` 状态生成：
+Z Systemizer 会为保活集合（`active`、`pending_add`、仅保活）生成：
 
 ```text
 /data/adb/modules/ksu-systemizer/system/etc/sysconfig/z-systemizer-aosp-keepalive.xml
@@ -125,8 +131,9 @@ Z Systemizer 会根据 `active` 和 `pending_add` 状态生成：
 
 ```xml
 <allow-in-power-save package="com.example.app" />
-<allow-in-power-save-except-idle package="com.example.app" />
 ```
+
+只写这一个标签：`allow-in-power-save` 本身已隐含 `except-idle` 豁免，再叠加 `allow-in-power-save-except-idle` 属于越权写入，因此不会出现。
 
 这是一种 AOSP 省电策略白名单辅助，用于减少原生 Android 省电模式对相关应用后台行为的限制。它不是常驻服务，不保证防止 LMK 杀进程，也不保证绕过 MIUI、ColorOS、OriginOS 等厂商 ROM 的额外后台管理策略。
 
@@ -141,6 +148,7 @@ systemizer list-systemized
 systemizer status <package>
 systemizer systemize <package> app [--dry-run]
 systemizer unsystemize <package>
+systemizer keepalive <package> on|off
 systemizer state-json
 systemizer reconcile --phase <install|post-fs-data|manual>
 systemizer refresh-derived
@@ -170,6 +178,7 @@ su -c '/data/adb/modules/ksu-systemizer/bin/systemizer diagnose'
 | `state_active` | 已落定为 active 的数量 |
 | `state_pending_add` | 等待系统化生效的数量 |
 | `state_pending_remove` | 等待移除生效的数量 |
+| `state_keepalive_only` | 已加入保活白名单的数量 |
 | `cache_missing_count` | 状态中存在但 APK 缓存缺失的数量 |
 | `system_app_missing_count` | 状态中存在但 `system/app` 目录缺失的数量 |
 | `keepalive_sysconfig_exists` | AOSP 辅助 sysconfig 是否存在 |
@@ -184,7 +193,7 @@ su -c 'cat /data/adb/modules/ksu-systemizer/module.prop'
 
 ## 安装与使用
 
-1. 从 Releases 页面下载 `Z-Systemizer-v1.1.6.zip`
+1. 从 Releases 页面下载最新 `Z-Systemizer-v1.2.6.zip`
 2. 在 KernelSU 管理器中刷入该模块
 3. 打开 KernelSU 模块列表
 4. 点进 `Z Systemizer` 模块
