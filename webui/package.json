@@ -1,6 +1,6 @@
 {
   "name": "z-systemizer-webui",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "type": "module",
   "scripts": {
     "build": "vite build",

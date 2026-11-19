@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.7
+
+### Fixed
+- **「取消系统化」不再被静默吞掉**：`unsystemize` 对已系统化应用是「当场删掉 `system/app/<pkg>` + 标记 `pending_remove`」，而 `settle_pending_via_pm` 旧逻辑把「`pm path` 看不到 `/system/app`」当成「移除已完成」并当场注销整条记录。于是「取消系统化 A + 给 B 开系统化」之后的一次状态读取（`state-json` / `refresh-derived` / `diagnose` 都会触发）会让 A 从「已系统化 待移除」掉回「未处理」、待重启计数从 2 变 1，`state/apks` 缓存也失去归属。现在 `pending_remove` 只由跨开机的 `reconcile --phase post-fs-data` 收尾，任何 `pm` 答复都不注销它。
+- **状态锁不再误判「崩溃残留」**：锁文件写入持有者 pid，`/proc/<pid>` 仍存活就绝不抢占（mtime 兜底阈值由 60s 放宽到 300s）。旧实现下 `systemize` 拷贝大 APK 或 `after_state_changed` 耗时超过 60s 时，并发的一次 `state-json` 会接管锁并用旧快照覆盖刚写入的改动。
+- `unsystemize` 摘除 `system/app/<pkg>` 失败时输出 `warn=failed_to_remove_system_app_dir` 与错误详情，不再静默忽略。
+- 版本号提升至 `v1.2.7`（`versionCode=127`）。
+
 ## v1.2.6
 
 ### Changed

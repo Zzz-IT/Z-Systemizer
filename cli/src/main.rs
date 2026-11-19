@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::{exit, id, Command};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -197,12 +197,17 @@ fn write_state_atomic(state: &mut StateFile) -> Result<(), String> {
 
 // 跨进程互斥锁：state 是「读-改-写」，WebUI（exec）、模块脚本（reconcile）、
 // 终端三处可能同时改它，没有锁时后写者会用旧快照覆盖前者的改动。
-// 用 create_new 原子建锁文件，超时 30s，超过 60s 视为崩溃残留直接接管。
+// 用 create_new 原子建锁文件，锁文件内写持有者 pid，等待上限 30s。
 //
 // 超时必须大于临界区实际耗时：持锁方在 after_state_changed 里会按包逐个 exec
 // cmd deviceidle / am set-standby-bucket / appops，几十个包加起来可达数秒。
 const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
-const STATE_LOCK_STALE: Duration = Duration::from_secs(60);
+// mtime 兜底阈值（仅在无法判定持有者 pid 时使用）。
+// 旧实现固定 60s，而 systemize 拷贝上百 MB APK + after_state_changed 下发
+// 完全可能超过 60s，于是并发的一次 state-json 会把它误判成崩溃残留并接管：
+// 两个写者各写各的快照，后写者的旧快照会把先写者的改动（比如刚标记的
+// pending_remove「待移除」）整条抹掉。现在优先看 pid 是否还活着。
+const STATE_LOCK_STALE: Duration = Duration::from_secs(300);
 
 struct StateLock {
     path: PathBuf,
@@ -210,7 +215,49 @@ struct StateLock {
 
 impl Drop for StateLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        // 只删自己建的锁：极端并发下锁可能已被判定为残留并被别的进程接管，
+        // 无脑 remove 会把接管者的锁删掉，等于给第三方凭空开锁。
+        let mine = fs::read_to_string(&self.path)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .map(|pid| pid == id())
+            .unwrap_or(true);
+        if mine {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+// 锁文件里记着持有者 pid。只要 /proc/<pid> 还在，就绝不判定为「崩溃残留」。
+// None = 无法判定（pid 还没写进去、文件损坏、或宿主没有 /proc），此时退化为 mtime。
+fn lock_owner_alive(path: &Path) -> Option<bool> {
+    let pid: u32 = fs::read_to_string(path).ok()?.trim().parse().ok()?;
+    if pid == 0 {
+        return None;
+    }
+    if !Path::new("/proc").is_dir() {
+        return None;
+    }
+    Some(Path::new(&format!("/proc/{}", pid)).exists())
+}
+
+fn lock_mtime_age(path: &Path) -> Option<Duration> {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()?
+        .elapsed()
+        .ok()
+}
+
+fn lock_is_stale(path: &Path) -> bool {
+    match lock_owner_alive(path) {
+        // 持有者进程仍在跑：抢锁会让两个进程同时「读-改-写」，宁可等它退出。
+        Some(true) => false,
+        // 持有者已死：立刻接管，不必干等 mtime 阈值。
+        Some(false) => true,
+        None => lock_mtime_age(path)
+            .map(|age| age > STATE_LOCK_STALE)
+            .unwrap_or(false),
     }
 }
 
@@ -230,16 +277,13 @@ fn acquire_state_lock() -> Result<StateLock, String> {
             .create_new(true)
             .open(&path)
         {
-            Ok(_) => return Ok(StateLock { path }),
+            Ok(mut file) => {
+                let _ = file.write_all(format!("{}\n", id()).as_bytes());
+                let _ = file.flush();
+                return Ok(StateLock { path });
+            }
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                let stale = fs::metadata(&path)
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.elapsed().ok())
-                    .map(|d| d > STATE_LOCK_STALE)
-                    .unwrap_or(false);
-
-                if stale {
+                if lock_is_stale(&path) {
                     let _ = fs::remove_file(&path);
                     continue;
                 }
@@ -632,7 +676,15 @@ fn unsystemize(pkg: &str) -> Result<(), String> {
                 }
             }
             AppStatus::Active | AppStatus::PendingRemove => {
-                let _ = fs::remove_dir_all(&app_dir);
+                // 摘目录是「立刻」发生的，重启只是让 PackageManager 重新扫描。
+                // 删失败必须留痕：记录会一直标着待移除，重试与排障都靠这条告警。
+                if app_dir.is_dir() {
+                    if let Err(e) = fs::remove_dir_all(&app_dir) {
+                        eprintln!("warn=failed_to_remove_system_app_dir");
+                        eprintln!("system_app_dir={}", app_dir.display());
+                        eprintln!("system_app_dir_error={}", e);
+                    }
+                }
                 record.status = AppStatus::PendingRemove;
                 record.updated_at = current_time();
                 record.pending_boot_id = Some(get_boot_id());
@@ -1507,8 +1559,6 @@ enum SettleAction {
     PromoteToActive,
     // 叠加态收尾：物理上已不在 system 分区，蜕变为纯保活
     CollapseToKeepalive,
-    // 普通待移除已物理完成：注销记录
-    Drop,
 }
 
 fn settle_action(status: AppStatus, keepalive_only: bool, pm_system: Option<bool>) -> SettleAction {
@@ -1529,28 +1579,40 @@ fn settle_action(status: AppStatus, keepalive_only: bool, pm_system: Option<bool
             }
         }
         AppStatus::PendingRemove => {
-            if pm_system {
-                SettleAction::Keep
-            } else if keepalive_only {
+            // 待移除记录只能由「跨开机」的 reconcile --phase post-fs-data 收尾，
+            // 任何 pm 答复都不允许注销它。
+            //
+            // 曾经的 Drop 分支（pm 看不到 /system/app 就整条删记录）与
+            // unsystemize「标记待移除 + 当场删掉 system/app 目录」直接打架：
+            // 目录是立刻删的，pm 在重启前就已经看不到该包（模块只把 APK 拷进
+            // system/app，/data/app 的原安装仍在，PackageManager 会把它认成
+            // 「已更新的系统应用」而报 /data/app 路径），于是用户刚点完
+            // 「取消系统化」，紧接着的一次 state-json / refresh-derived 就把这条
+            // 待移除静默吞掉 —— 界面从「已系统化 待移除」掉回「未处理」，
+            // 待重启计数少 1，state/apks 缓存也失去归属（reconcile 只按
+            // pending_remove 清理，缓存从此永久残留）。
+            //
+            // 叠加态仍然保留收尾能力：它本来就该蜕变为纯保活，不需要等重启。
+            if keepalive_only && !pm_system {
                 SettleAction::CollapseToKeepalive
             } else {
-                SettleAction::Drop
+                SettleAction::Keep
             }
         }
     }
 }
 
 // 返回是否改动了 state；调用方据此决定写盘 + 刷新派生状态。
-fn settle_pending_via_pm(state: &mut StateFile) -> bool {
+// probe 抽成参数只为可测：宿主上没有 pm，真实探测恒为 None（Keep），
+// 无法覆盖「pm 说不在 system」这一档。
+fn settle_pending_via_pm_with<F>(state: &mut StateFile, probe: F) -> bool
+where
+    F: Fn(&str) -> Option<bool>,
+{
     let mut changed = false;
-    let mut dropped = Vec::new();
 
     for (pkg, record) in state.apps.iter_mut() {
-        let action = settle_action(
-            record.status,
-            record.keepalive_only,
-            pm_reports_system_apk(pkg),
-        );
+        let action = settle_action(record.status, record.keepalive_only, probe(pkg));
 
         match action {
             SettleAction::Keep => {}
@@ -1567,18 +1629,14 @@ fn settle_pending_via_pm(state: &mut StateFile) -> bool {
                 record.updated_at = current_time();
                 changed = true;
             }
-            SettleAction::Drop => {
-                dropped.push(pkg.clone());
-                changed = true;
-            }
         }
     }
 
-    for pkg in dropped {
-        state.apps.remove(&pkg);
-    }
-
     changed
+}
+
+fn settle_pending_via_pm(state: &mut StateFile) -> bool {
+    settle_pending_via_pm_with(state, pm_reports_system_apk)
 }
 
 fn refresh_derived() -> Result<(), String> {
@@ -2001,7 +2059,7 @@ mod tests {
 
         let state = read_state().unwrap();
         assert_eq!(state.schema_version, 2);
-        assert_eq!(state.apps["com.example.app"].keepalive_only, false);
+        assert!(!state.apps["com.example.app"].keepalive_only);
         assert_eq!(state.apps["com.example.app"].target, "app");
 
         teardown_mock_moddir(dir);
@@ -2517,10 +2575,12 @@ mod tests {
             settle_action(AppStatus::PendingRemove, true, Some(false)),
             SettleAction::CollapseToKeepalive
         );
-        // 普通待移除：物理已移除 → 注销
+        // 回归：普通待移除即使 pm 说「不在 system」也必须保留。
+        // unsystemize 是当场删目录的，pm 重启前就看不到它；若据此注销记录，
+        // 「已系统化 待移除」会在下一次读状态时凭空消失、待重启计数少 1。
         assert_eq!(
             settle_action(AppStatus::PendingRemove, false, Some(false)),
-            SettleAction::Drop
+            SettleAction::Keep
         );
         // 物理仍在 system（overlay 尚未卸载）→ 继续等重启
         assert_eq!(
@@ -2531,6 +2591,81 @@ mod tests {
             settle_action(AppStatus::PendingRemove, true, Some(true)),
             SettleAction::Keep
         );
+    }
+
+    // 用户复现路径：A 已系统化 → 取消系统化（当场删目录）；同时 B 标记待系统化。
+    // 紧接着的一次状态读取（WebUI 每次刷新都先跑 state-json，末尾再跑
+    // refresh-derived，两者都调 settle）不得改动 A 的记录：
+    // A 必须仍是 pending_remove（待重启），B 必须仍是 pending_add，
+    // 待重启计数保持 2。
+    #[test]
+    fn test_settle_keeps_pending_remove_when_pm_no_longer_sees_system_app() {
+        let dir = setup_mock_moddir();
+
+        // A：已系统化，用户刚点了取消 → 目录已删，记录待移除
+        seed_record(
+            "com.example.removing",
+            "app",
+            AppStatus::PendingRemove,
+            true,
+            false,
+            false,
+        );
+        // B：未处理，用户刚点了系统化 → 待系统化
+        seed_record(
+            "com.example.adding",
+            "app",
+            AppStatus::PendingAdd,
+            true,
+            false,
+            true,
+        );
+
+        let mut state = read_state().unwrap();
+        // A 已被 unsystemize 摘掉目录 → pm 侧看不到 /system/app；
+        // B 还没重启，pm 同样看不到 → 两者都返回 Some(false)
+        let changed = settle_pending_via_pm_with(&mut state, |_pkg| Some(false));
+
+        assert!(!changed, "两个待处理项都不该被落定改写");
+        assert!(state.apps.contains_key("com.example.removing"));
+        assert_eq!(
+            state.apps["com.example.removing"].status,
+            AppStatus::PendingRemove,
+            "取消系统化的应用必须保持待移除，等重启收尾"
+        );
+        assert_eq!(
+            state.apps["com.example.adding"].status,
+            AppStatus::PendingAdd,
+            "待系统化必须保持待系统化"
+        );
+
+        let pending = state
+            .apps
+            .values()
+            .filter(|r| r.status != AppStatus::Active)
+            .count();
+        assert_eq!(pending, 2, "待重启计数必须是 2，不能掉成 1");
+
+        teardown_mock_moddir(dir);
+    }
+
+    // 锁的「崩溃残留」判定：持有者进程还活着时绝不抢占。
+    // 宿主上（无 /proc）退化为 mtime，刚建的锁同样不算过期。
+    #[test]
+    fn test_lock_is_not_stale_while_owner_is_alive() {
+        let dir = setup_mock_moddir();
+        let lock = state_file_path().with_file_name("systemizer-state.lock");
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        fs::write(&lock, format!("{}\n", id())).unwrap();
+
+        assert!(
+            !lock_is_stale(&lock),
+            "持有者 pid 仍存活时不得判定为崩溃残留"
+        );
+
+        fs::remove_file(&lock).unwrap();
+        assert!(!lock_is_stale(&lock), "锁不存在时不应报 stale");
+        teardown_mock_moddir(dir);
     }
 
     // 已落盘但还没重启生效（PendingAdd）的应用开保活：

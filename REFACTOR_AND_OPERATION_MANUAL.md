@@ -500,7 +500,11 @@ keepalive_cap_post_notifications=true
 只要 `pm path <pkg>` 命中 `/system/app/<pkg>/...` 或 `/system/system/app/<pkg>/...`：
 
 1. `pending_add` **立刻转正**为 `AppStatus::Active`，清空 `pending_boot_id`；
-2. `pending_remove` 若已从 `/system/app` 消失则**清理记录**，回到普通应用；
+2. `pending_remove` **不因 `pm` 探测结果注销**：`unsystemize` 是当场删掉
+   `system/app/<pkg>` 的，`pm` 在重启前就已看不到该包，若据此清理记录，
+   用户刚标记的「待移除」会在下一次读状态时凭空消失、待重启计数少 1、
+   `state/apks` 缓存失去归属。待移除只能由跨开机的
+   `reconcile --phase post-fs-data` 收尾（叠加态例外：见下方不变量 2）；
 3. 落定后调 `after_state_changed` 更新 `module.prop`：`diagnose` 与 `refresh-derived` 会调（分别走 `ApplyMode::WebUi` / `Manual`）；**`state-json` 只写盘不调** —— 它是高频只读路径（WebUI 每次刷新都打），挂上 `deviceidle`/`appops` 下发会让每次轮询都跑一遍 shell，派生状态统一交给紧随其后的 `refresh-derived` 收敛。
 
 写盘仍由 `write_state_atomic` 的 `.bak` 回滚兜底。注意：**探测失败不算证据**，
@@ -526,21 +530,32 @@ keepalive_cap_post_notifications=true
 - `is_system_apk_path(path)`（`:260`）—— 用 `components().windows(2)` 匹配
   `system/app` 与 `system/priv-app`，因此 `/system/system/app/...` 叠加挂载点同样命中
   （`priv-app` 仅用于识别历史遗留挂载，模块本身不再生成该目录）。
-- `settle_action(status, keepalive_only, pm_system) -> SettleAction`（`:1400`）—— 纯函数状态机，
-  四档：`Keep` / `PromoteToActive` / `CollapseToKeepalive` / `Drop`；
+- `settle_action(status, keepalive_only, pm_system) -> SettleAction` —— 纯函数状态机，
+  三档：`Keep` / `PromoteToActive` / `CollapseToKeepalive`；
   `pm_system == None` 时**一律 `Keep`**（核心安全不变量）。
-- `settle_pending_via_pm(&mut StateFile) -> bool`（`:1430`）—— 遍历记录套用上述状态机，
-  返回是否改动。
+  旧版的 `Drop` 档（`PendingRemove` + `Some(false)` → 注销记录）已删除，
+  见下方不变量 4。
+- `settle_pending_via_pm_with(state, probe) -> bool` —— 遍历记录套用上述状态机，
+  `probe` 抽成参数仅为可测（宿主无 `pm`，真实探测恒 `None`）；
+  `settle_pending_via_pm` 以 `pm_reports_system_apk` 为 `probe` 调用它，返回是否改动。
 
 #### 安全不变量（改动前必读）
 
 1. **探测失败 ≠ 已移除**。`pm` 在受限 shell 上下文（KernelSU WebUI）里可能不存在；
    若把 `None` 当成 `Some(false)`，一次失败的探测就会把排队中的 `pending_add`/`pending_remove`
    记录整条删掉。故 `pm_reports_system_apk` 显式三态，`settle_action` 对 `None` 恒 `Keep`。
-2. **叠加态永不被 `Drop`。`PendingRemove + keepalive_only` 且物理已不在 system →
+2. **叠加态在物理离开 system 后收敛为纯保活**（不注销、不丢保活开关）。
+   `PendingRemove + keepalive_only` 且 `pm` 已看不到 system 分区 →
    `CollapseToKeepalive`（target→`keepalive`、status→`Active`、清空 `pending_boot_id`），
    与冷启动 `reconcile --phase post-fs-data` 的收尾行为完全一致。
 3. `PendingAdd` 未生效时**只等不删**（`Some(false)` → `Keep`），避免和 fs 对账抢跑。
+4. **普通 `PendingRemove` 绝不因 `pm` 探测被注销**（v1.2.7 修复）。
+   `unsystemize` 对已系统化应用是「当场删 `system/app/<pkg>` + 标记待移除」，
+   因此 `pm` 在重启前就会答 `Some(false)`（模块只拷贝 APK，`/data/app` 原安装仍在，
+   PackageManager 会把它认成「已更新的系统应用」）。旧逻辑据此 `Drop` 整条记录，
+   表现为：取消系统化 A 的同时给 B 开系统化 → 下一次读状态后 A 从「已系统化 待移除」
+   掉回「未处理」、待重启计数 2 变 1、`state/apks` 缓存永久残留。
+   唯一合法的收尾口是跨开机的 `reconcile --phase post-fs-data`。
 
 ---
 

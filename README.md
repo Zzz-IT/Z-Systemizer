@@ -193,7 +193,7 @@ su -c 'cat /data/adb/modules/ksu-systemizer/module.prop'
 
 ## 安装与使用
 
-1. 从 Releases 页面下载最新 `Z-Systemizer-v1.2.6.zip`
+1. 从 Releases 页面下载最新 `Z-Systemizer-v1.2.7.zip`
 2. 在 KernelSU 管理器中刷入该模块
 3. 打开 KernelSU 模块列表
 4. 点进 `Z Systemizer` 模块
